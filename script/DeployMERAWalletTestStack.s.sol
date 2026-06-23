@@ -19,9 +19,10 @@ contract DeployMERAWalletTestStack is Script {
         )
     {
         address authorizer = vm.envAddress("WALLET_MERA_LOGIN_AUTHORIZER_ADDRESS");
+        uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        address deployer = vm.addr(deployerPrivateKey);
 
-        vm.startBroadcast();
-        address deployer = msg.sender;
+        vm.startBroadcast(deployerPrivateKey);
         console2.log("Deployer:", deployer);
         console2.log("Login authorizer:", authorizer);
 
