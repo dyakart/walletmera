@@ -150,7 +150,7 @@ interface IBaseMERAWallet {
         uint256 salt,
         MERAWalletTypes.RelayProposeConfig calldata relayConfig
     ) external payable returns (bytes32 operationId);
-    /// @notice Executes a pending operation through the default core execution path.
+    /// @notice Executes a pending operation through its stored execution policy.
     /// @param calls Calls matching the proposed operation.
     /// @param salt Salt matching the proposed operation.
     function executePending(MERAWalletTypes.Call[] calldata calls, uint256 salt) external payable;

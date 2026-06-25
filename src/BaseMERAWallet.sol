@@ -501,7 +501,6 @@ contract BaseMERAWallet is IBaseMERAWallet, IBaseMERAWalletEvents, IBaseMERAWall
         payable
         override
         whenLifeAlive
-        whenControllerCoreAvailable
         nonReentrant
     {
         _executePending(calls, salt, new address[](0));
@@ -513,7 +512,6 @@ contract BaseMERAWallet is IBaseMERAWallet, IBaseMERAWalletEvents, IBaseMERAWall
         payable
         override
         whenLifeAlive
-        whenControllerCoreAvailable
         nonReentrant
     {
         _executePending(calls, salt, executorWhitelist);
@@ -841,6 +839,7 @@ contract BaseMERAWallet is IBaseMERAWallet, IBaseMERAWalletEvents, IBaseMERAWall
         internal
     {
         _validateCalls(calls);
+        _requireNotSafeMode();
 
         bytes32 operationId = _computeOperationId(calls, salt);
         MERAWalletTypes.PendingOperation storage operation = _operations[operationId];
