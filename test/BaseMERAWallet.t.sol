@@ -2803,8 +2803,7 @@ contract BaseMERAWalletTest is Test {
         assertEq(wallet.backup(), newBackup);
     }
 
-    /// @dev `executePending` has `whenControllerCoreAvailable`, so outsiders cannot relay-execute (`Unauthorized`).
-    /// With relay policy `Anyone`, a core controller passes `_validateRelayExecutor` and receives the relay reward.
+    /// @dev With relay policy `Anyone`, any external executor can execute after the timelock and receive the relay reward.
     function test_ProposeWithRelay_Anyone_ExternalExecutorGetsReward() public {
         vm.startPrank(emergency);
         _setAllRoleTimelocks(1 days);
@@ -2823,22 +2822,17 @@ contract BaseMERAWalletTest is Test {
         vm.warp(executeAfter);
 
         vm.prank(outsider);
-        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
-        wallet.executePending(calls, 1);
-
-        vm.prank(primary);
-        uint256 primaryBalBefore = primary.balance;
+        uint256 outsiderBalBefore = outsider.balance;
         wallet.executePending(calls, 1);
 
         assertEq(receiver.value(), 717);
         assertEq(address(wallet).balance, 0);
         (,,,,,,, uint256 relayReward,,,) = wallet.operations(operationId);
         assertEq(relayReward, 0);
-        assertEq(primary.balance, primaryBalBefore + 1 ether);
+        assertEq(outsider.balance, outsiderBalBefore + 1 ether);
     }
 
-    /// @dev See {test_ProposeWithRelay_Anyone_ExternalExecutorGetsReward}: non-core callers revert at gate.
-    /// `{Designated}`: a core controller who is not the designated executor hits `RelayExecutorNotAllowed`.
+    /// @dev `{Designated}` allows only the configured external executor, independent of wallet core roles.
     function test_ProposeWithRelay_Designated_OnlyDesignatedCanExecute() public {
         vm.startPrank(emergency);
         _setAllRoleTimelocks(1 days);
@@ -2859,7 +2853,7 @@ contract BaseMERAWalletTest is Test {
         vm.warp(executeAfter);
 
         vm.prank(randomRelayer);
-        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
+        vm.expectRevert(abi.encodeWithSelector(IBaseMERAWalletErrors.RelayExecutorNotAllowed.selector, randomRelayer));
         wallet.executePending(calls, 1);
 
         vm.prank(backup);
@@ -2867,15 +2861,17 @@ contract BaseMERAWalletTest is Test {
         wallet.executePending(calls, 1);
 
         vm.prank(designated);
-        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
+        uint256 designatedBalBefore = designated.balance;
         wallet.executePending(calls, 1);
 
-        assertEq(receiver.value(), 0);
-        assertEq(address(wallet).balance, 0.25 ether);
+        assertEq(receiver.value(), 808);
+        assertEq(address(wallet).balance, 0);
+        (,,,,,,, uint256 relayReward,,,) = wallet.operations(operationId);
+        assertEq(relayReward, 0);
+        assertEq(designated.balance, designatedBalBefore + 0.25 ether);
     }
 
-    /// @dev Non-core callers never reach `{Whitelist}` relay checks (`Unauthorized` at entry); a core controller
-    /// not in the whitelist hits `RelayExecutorNotAllowed` inside `_validateRelayExecutor`.
+    /// @dev `{Whitelist}` validates both the committed set hash and the caller membership.
     function test_ProposeWithRelay_Whitelist_ValidatesHashAndExecutor() public {
         vm.startPrank(emergency);
         _setAllRoleTimelocks(1 days);
@@ -2906,19 +2902,22 @@ contract BaseMERAWalletTest is Test {
         wrongWhitelist[0] = whitelistRelayerB;
         wrongWhitelist[1] = whitelistRelayerA;
         vm.prank(whitelistRelayerA);
-        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
+        vm.expectRevert(IBaseMERAWalletErrors.InvalidExecutorWhitelist.selector);
         wallet.executePending(calls, 1, wrongWhitelist);
 
         vm.prank(address(0xFA11));
-        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
+        vm.expectRevert(abi.encodeWithSelector(IBaseMERAWalletErrors.RelayExecutorNotAllowed.selector, address(0xFA11)));
         wallet.executePending(calls, 1, whitelist);
 
-        vm.prank(backup);
-        vm.expectRevert(abi.encodeWithSelector(IBaseMERAWalletErrors.RelayExecutorNotAllowed.selector, backup));
+        vm.prank(whitelistRelayerB);
+        uint256 relayerBalBefore = whitelistRelayerB.balance;
         wallet.executePending(calls, 1, whitelist);
 
-        assertEq(receiver.value(), 0);
-        assertEq(address(wallet).balance, 0.4 ether);
+        assertEq(receiver.value(), 909);
+        assertEq(address(wallet).balance, 0);
+        (,,,,,,, uint256 relayReward,,,) = wallet.operations(operationId);
+        assertEq(relayReward, 0);
+        assertEq(whitelistRelayerB.balance, relayerBalBefore + 0.4 ether);
     }
 
     function test_CancelPending_KeepsRelayRewardOnWallet() public {
@@ -3004,12 +3003,79 @@ contract BaseMERAWalletTest is Test {
 
         vm.warp(t0 + 1 days + 6);
 
-        // Core controller is required to pass `whenControllerCoreAvailable` (outsiders revert with `Unauthorized` first).
         vm.prank(backup);
         vm.expectRevert(
             abi.encodeWithSelector(IBaseMERAWalletErrors.RelayExecutionExpired.selector, relayDeadline, t0 + 1 days + 6)
         );
         wallet.executePending(calls, 1);
+    }
+
+    function test_ExecutePending_CoreExecuteStillRequiresAvailableCoreController() public {
+        vm.startPrank(emergency);
+        _setAllRoleTimelocks(1 days);
+        vm.stopPrank();
+
+        MERAWalletTypes.Call[] memory calls =
+            _singleCall(address(receiver), 0, abi.encodeWithSelector(ReceiverMock.setValue.selector, 811));
+
+        vm.prank(primary);
+        bytes32 operationId = wallet.proposeTransaction(calls, 10300);
+        (,,, uint64 executeAfter,,,,,,,) = wallet.operations(operationId);
+        vm.warp(executeAfter);
+
+        vm.prank(outsider);
+        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
+        wallet.executePending(calls, 10300);
+
+        vm.prank(primary);
+        wallet.executePending(calls, 10300);
+        assertEq(receiver.value(), 811);
+    }
+
+    function test_ExecutePending_AgentDoesNotBypassCoreExecutePolicy() public {
+        vm.prank(primary);
+        _agentsCall(wallet, agentAddr, MERAWalletTypes.Role.Primary);
+
+        vm.startPrank(emergency);
+        _setAllRoleTimelocks(1 days);
+        vm.stopPrank();
+
+        MERAWalletTypes.Call[] memory calls =
+            _singleCall(address(receiver), 0, abi.encodeWithSelector(ReceiverMock.setValue.selector, 812));
+
+        vm.prank(primary);
+        bytes32 operationId = wallet.proposeTransaction(calls, 10301);
+        (,,, uint64 executeAfter,,,,,,,) = wallet.operations(operationId);
+        vm.warp(executeAfter);
+
+        vm.prank(agentAddr);
+        vm.expectRevert(IBaseMERAWalletErrors.Unauthorized.selector);
+        wallet.executePending(calls, 10301);
+    }
+
+    function test_ExecutePending_DesignatedRelayBlockedDuringSafeMode() public {
+        vm.startPrank(emergency);
+        _setAllRoleTimelocks(1 days);
+        vm.stopPrank();
+
+        address designated = address(0xD3516);
+        MERAWalletTypes.Call[] memory calls =
+            _singleCall(address(receiver), 0, abi.encodeWithSelector(ReceiverMock.setValue.selector, 813));
+        MERAWalletTypes.RelayProposeConfig memory relayConfig = _relayConfig(
+            MERAWalletTypes.RelayExecutorPolicy.Designated, designated, bytes32(0), uint64(block.timestamp + 8 days)
+        );
+
+        vm.prank(primary);
+        bytes32 operationId = wallet.proposeTransactionWithRelay(calls, 10302, relayConfig);
+        (,,, uint64 executeAfter,,,,,,,) = wallet.operations(operationId);
+
+        vm.prank(emergency);
+        wallet.enterSafeMode(MERAWalletConstants.SAFE_MODE_MIN_DURATION);
+
+        vm.warp(executeAfter);
+        vm.prank(designated);
+        vm.expectRevert(abi.encodeWithSelector(IBaseMERAWalletErrors.SafeModeActive.selector, wallet.safeModeBefore()));
+        wallet.executePending(calls, 10302);
     }
 
     function _callPathPolicy(uint32 primaryDelay, bool primaryForbidden, uint32 backupDelay, bool backupForbidden)
