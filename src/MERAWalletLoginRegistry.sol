@@ -18,10 +18,10 @@ contract MERAWalletLoginRegistry is
     IMERAWalletLoginRegistryErrors,
     Ownable
 {
-    /// @notice Optional authorization verifier used for short-login registrations.
+    /// @notice Authorization verifier used by satellite registrations and migration replays.
     address public override authorizationVerifier;
-    /// @notice Whether short paid logins require verifier authorization.
-    bool public immutable override REQUIRE_SHORT_LOGIN_AUTHORIZATION;
+    /// @notice Operating mode selected permanently at deployment.
+    MERAWalletLoginRegistryTypes.RegistryMode public immutable override REGISTRY_MODE;
     /// @notice Whether a factory address may register logins.
     mapping(address factory => bool allowed) public override isFactory;
     /// @notice Stored registration commitments as `committedAt + 1`; zero means absent.
@@ -50,8 +50,18 @@ contract MERAWalletLoginRegistry is
         _;
     }
 
-    constructor(address initialOwner, bool requireShortLoginAuthorization) Ownable(initialOwner) {
-        REQUIRE_SHORT_LOGIN_AUTHORIZATION = requireShortLoginAuthorization;
+    modifier onlyCanonical() {
+        _requireCanonical();
+        _;
+    }
+
+    modifier onlySatellite() {
+        _requireSatellite();
+        _;
+    }
+
+    constructor(address initialOwner, MERAWalletLoginRegistryTypes.RegistryMode registryMode) Ownable(initialOwner) {
+        REGISTRY_MODE = registryMode;
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
@@ -72,7 +82,7 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function setBaseLoginPrice(uint256 newBaseLoginPrice) external override onlyOwner {
+    function setBaseLoginPrice(uint256 newBaseLoginPrice) external override onlyOwner onlyCanonical {
         require(
             newBaseLoginPrice >= MERAWalletLoginRegistryConstants.MIN_BASE_LOGIN_PRICE
                 && newBaseLoginPrice <= MERAWalletLoginRegistryConstants.MAX_BASE_LOGIN_PRICE,
@@ -84,7 +94,7 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function setLoginPriceMultiplier(uint256 newMultiplier) external override onlyOwner {
+    function setLoginPriceMultiplier(uint256 newMultiplier) external override onlyOwner onlyCanonical {
         require(
             newMultiplier >= MERAWalletLoginRegistryConstants.MIN_LOGIN_PRICE_MULTIPLIER
                 && newMultiplier <= MERAWalletLoginRegistryConstants.MAX_LOGIN_PRICE_MULTIPLIER,
@@ -108,7 +118,7 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function commit(bytes32 commitment) external override {
+    function commit(bytes32 commitment) external override onlyCanonical {
         require(commitments[commitment] == 0, CommitmentAlreadyExists());
         commitments[commitment] = block.timestamp + 1;
         emit LoginCommitmentMade(commitment, block.timestamp);
@@ -125,14 +135,18 @@ contract MERAWalletLoginRegistry is
     ) external payable override onlyFactory {
         require(wallet != address(0), InvalidAddress());
         bytes32 loginHash = _requireLoginHash(login);
-        bytes32 referrerLoginHash = _requireReferrerLoginHash(loginHash, referrerLogin);
+        bool isSatellite = REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite;
+        bytes32 referrerLoginHash = bytes32(0);
+        if (isSatellite) {
+            require(bytes(referrerLogin).length == 0, SatelliteReferralNotAllowed());
+        } else {
+            referrerLoginHash = _requireReferrerLoginHash(loginHash, referrerLogin);
+        }
         require(walletByLoginHash[loginHash] == address(0), LoginAlreadyRegistered());
         require(loginHashByWallet[wallet] == bytes32(0), AddressAlreadyHasLogin());
 
         uint256 loginLength = bytes(login).length;
-        if (loginLength > MERAWalletLoginRegistryConstants.PAID_LOGIN_MAX_LENGTH) {
-            require(msg.value == 0, InvalidPayment());
-        } else if (REQUIRE_SHORT_LOGIN_AUTHORIZATION) {
+        if (isSatellite) {
             require(msg.value == 0, InvalidPayment());
             address verifier = authorizationVerifier;
             require(verifier != address(0), AuthorizationVerifierNotSet());
@@ -146,6 +160,7 @@ contract MERAWalletLoginRegistry is
                     deadline: deadline,
                     authorization: authorization
                 });
+            // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
             IMERALoginAuthorizationVerifier(verifier).validateRegistration(registrationValidation);
         } else {
             require(msg.value == _priceOfValidatedLength(loginLength), InvalidPayment());
@@ -175,7 +190,7 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function setReferrer(string calldata referrerLogin) external override {
+    function setReferrer(string calldata referrerLogin) external override onlyCanonical {
         bytes32 loginHash = loginHashByWallet[msg.sender];
         require(loginHash != bytes32(0), LoginNotOwned());
         require(referrerLoginHashByLoginHash[loginHash] == bytes32(0), ReferrerAlreadySet());
@@ -275,6 +290,9 @@ contract MERAWalletLoginRegistry is
     /// @inheritdoc IMERAWalletLoginRegistry
     function priceOf(string calldata login) external view override returns (uint256) {
         _requireLoginHash(login);
+        if (REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite) {
+            return 0;
+        }
         return _priceOfValidatedLength(bytes(login).length);
     }
 
@@ -355,6 +373,14 @@ contract MERAWalletLoginRegistry is
 
     function _onlyFactory() private view {
         require(isFactory[msg.sender], UnauthorizedFactory());
+    }
+
+    function _requireCanonical() private view {
+        require(REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Canonical, CanonicalRegistryOnly());
+    }
+
+    function _requireSatellite() private view {
+        require(REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite, SatelliteRegistryOnly());
     }
 
     function _isLoginMigrationExpired(bytes32 oldLoginHash) private view returns (bool) {

@@ -9,6 +9,7 @@ import {MERAWalletConstants} from "../src/constants/MERAWalletConstants.sol";
 import {MERAWalletLoginRegistryConstants} from "../src/constants/MERAWalletLoginRegistryConstants.sol";
 import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
 import {MERAWalletTypes} from "../src/types/MERAWalletTypes.sol";
+import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
 import {MERAWalletUniswapV2OracleSlippageChecker} from "../src/checkers/MERAWalletUniswapV2OracleSlippageChecker.sol";
 import {MERAWalletAssetWhiteList} from "../src/checkers/whitelists/MERAWalletAssetWhiteList.sol";
 import {MERAWalletUniswapV2SlippageTypes} from "../src/checkers/types/MERAWalletUniswapV2SlippageTypes.sol";
@@ -3406,7 +3407,8 @@ contract BaseMERAWalletTest is Test {
     }
 
     function test_LoginMigrationRegistryCalls_DefaultToEmergencyOnly() public {
-        MERAWalletLoginRegistry registry = new MERAWalletLoginRegistry(address(this), false);
+        MERAWalletLoginRegistry registry =
+            new MERAWalletLoginRegistry(address(this), MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
         registry.addFactory(address(this));
 
         BaseMERAWallet newWallet = new BaseMERAWallet(primary, backup, emergency, address(0), address(0));

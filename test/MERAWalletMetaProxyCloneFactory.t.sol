@@ -15,6 +15,7 @@ import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
 import {MERALoginSignatureVerifier} from "../src/MERALoginSignatureVerifier.sol";
 import {MERAWalletMetaProxyCloneFactory} from "../src/MERAWalletMetaProxyCloneFactory.sol";
 import {MERAWalletTypes} from "../src/types/MERAWalletTypes.sol";
+import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
 
 contract NonPayableOwner {
     // no receive or fallback — rejects any ETH sent to it
@@ -53,19 +54,19 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
     function setUp() public {
         authorizer = vm.addr(authorizerPk);
         implementation = new BaseMERAWallet(address(1), address(2), address(3), address(0), address(0));
-        registry = new MERAWalletLoginRegistry(owner, false);
+        registry = new MERAWalletLoginRegistry(owner, MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
         factory = new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry));
 
         vm.prank(owner);
         registry.addFactory(address(factory));
     }
 
-    /// @dev Short logins: free + IMERALoginAuthorizationVerifier, no pre-commit.
-    function _authRegistryAndFactory()
+    /// @dev Satellite registrations: free + IMERALoginAuthorizationVerifier for every valid login length.
+    function _satelliteRegistryAndFactory()
         internal
         returns (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac)
     {
-        reg = new MERAWalletLoginRegistry(owner, true);
+        reg = new MERAWalletLoginRegistry(owner, MERAWalletLoginRegistryTypes.RegistryMode.Satellite);
         fac = new MERAWalletMetaProxyCloneFactory(address(implementation), address(reg));
         vm.prank(owner);
         reg.addFactory(address(fac));
@@ -814,8 +815,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         assertEq(registry.commitments(commitment), 0);
     }
 
-    function test_l2_mode_requires_valid_authorization() public {
-        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_requires_valid_authorization() public {
+        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(authorizer);
         vm.prank(owner);
         reg.setAuthorizationVerifier(address(verifier));
@@ -830,8 +831,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         assertEq(deployed, predicted);
     }
 
-    function test_l2_mode_rejects_missing_authorization() public {
-        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_rejects_missing_authorization() public {
+        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(authorizer);
         vm.prank(owner);
         reg.setAuthorizationVerifier(address(verifier));
@@ -843,8 +844,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         fac.deployWallet(login, p, secret, 0, "", "");
     }
 
-    function test_l2_mode_rejects_expired_authorization() public {
-        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_rejects_expired_authorization() public {
+        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(authorizer);
         vm.prank(owner);
         reg.setAuthorizationVerifier(address(verifier));
@@ -860,8 +861,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         fac.deployWallet(login, p, secret, deadline, authorization, "");
     }
 
-    function test_l2_mode_accepts_eip1271_authorizer() public {
-        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_accepts_eip1271_authorizer() public {
+        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         Mock1271Authorizer mockAuthorizer = new Mock1271Authorizer(authorizer);
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(address(mockAuthorizer));
         vm.prank(owner);
@@ -877,11 +878,15 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         assertEq(deployed, predicted);
     }
 
-    function test_deploy_long_login_without_commit_or_payment() public {
+    function test_deploy_long_login_requires_commit_but_no_payment() public {
         MERAWalletTypes.WalletInitParams memory p = _params();
         string memory login = "abcdefghij";
         address predicted = factory.predictWallet(login, p);
 
+        vm.expectRevert(IMERAWalletLoginRegistryErrors.CommitmentNotFound.selector);
+        factory.deployWallet(login, p, secret, 0, "", "");
+
+        _commit(login, p);
         vm.expectEmit(true, false, false, true);
         emit MERAWalletMetaProxyCloneFactory.WalletDeployed(keccak256(bytes(login)), login, predicted);
         address deployed = factory.deployWallet(login, p, secret, 0, "", "");
@@ -890,7 +895,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         assertEq(registry.walletOf(login), deployed);
     }
 
-    function test_paid_mode_skips_authorization_verifier_even_when_set() public {
+    function test_canonical_mode_skips_authorization_verifier_even_when_set() public {
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(authorizer);
         vm.prank(owner);
         registry.setAuthorizationVerifier(address(verifier));
@@ -903,8 +908,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         assertEq(deployed, factory.predictWallet(login, p));
     }
 
-    function test_short_login_authorization_mode_reverts_without_verifier() public {
-        (, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_reverts_without_verifier() public {
+        (, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         MERAWalletTypes.WalletInitParams memory p = _params();
         string memory login = "dave";
 
@@ -912,8 +917,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         fac.deployWallet(login, p, secret, 0, "", "");
     }
 
-    function test_short_login_authorization_mode_rejects_nonzero_value() public {
-        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_rejects_nonzero_value() public {
+        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(authorizer);
         vm.prank(owner);
         reg.setAuthorizationVerifier(address(verifier));
@@ -933,8 +938,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         new MERALoginSignatureVerifier(address(0));
     }
 
-    function test_l2_mode_rejects_invalid_signature() public {
-        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _authRegistryAndFactory();
+    function test_satellite_mode_rejects_invalid_signature() public {
+        (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac) = _satelliteRegistryAndFactory();
         MERALoginSignatureVerifier verifier = new MERALoginSignatureVerifier(authorizer);
         vm.prank(owner);
         reg.setAuthorizationVerifier(address(verifier));
@@ -1075,7 +1080,8 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
     // WithdrawFailed: owner rejects ETH.
     function test_registry_withdrawEth_failedTransfer_reverts() public {
         NonPayableOwner nonPayable = new NonPayableOwner();
-        MERAWalletLoginRegistry reg = new MERAWalletLoginRegistry(address(nonPayable), false);
+        MERAWalletLoginRegistry reg =
+            new MERAWalletLoginRegistry(address(nonPayable), MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
         vm.deal(address(reg), 1 ether);
 
         vm.expectRevert(IMERAWalletLoginRegistryErrors.WithdrawFailed.selector);

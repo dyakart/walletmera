@@ -6,6 +6,7 @@ import {BaseMERAWallet} from "../src/BaseMERAWallet.sol";
 import {MERALoginSignatureVerifier} from "../src/MERALoginSignatureVerifier.sol";
 import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
 import {MERAWalletMetaProxyCloneFactory} from "../src/MERAWalletMetaProxyCloneFactory.sol";
+import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
 
 /// @notice Deploys a production-like WalletMera test stack.
 contract DeployMERAWalletTestStack is Script {
@@ -27,7 +28,8 @@ contract DeployMERAWalletTestStack is Script {
         console2.log("Login authorizer:", authorizer);
 
         implementation = new BaseMERAWallet(address(1), address(2), address(3), address(0), address(0));
-        registry = new MERAWalletLoginRegistry(deployer, true);
+        registry =
+            new MERAWalletLoginRegistry(deployer, MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
         factory = new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry));
         verifier = new MERALoginSignatureVerifier(authorizer);
 

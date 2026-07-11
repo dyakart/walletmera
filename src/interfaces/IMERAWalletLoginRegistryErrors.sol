@@ -61,4 +61,10 @@ interface IMERAWalletLoginRegistryErrors {
     error WithdrawFailed();
     /// @notice Registration requires an authorization verifier, but none is set.
     error AuthorizationVerifierNotSet();
+    /// @notice Function is available only on the canonical registry.
+    error CanonicalRegistryOnly();
+    /// @notice Function is available only on satellite registries.
+    error SatelliteRegistryOnly();
+    /// @notice Referral data is canonical metadata and cannot be written on a satellite registry.
+    error SatelliteReferralNotAllowed();
 }

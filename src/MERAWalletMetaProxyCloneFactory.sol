@@ -37,10 +37,10 @@ contract MERAWalletMetaProxyCloneFactory {
     /// @notice Deploys a deterministic wallet clone and registers `login`.
     /// @param login Login to register for the new wallet.
     /// @param params Wallet initialization parameters embedded as immutable args.
-    /// @param secret Commitment secret for paid registration.
-    /// @param deadline Registration authorization deadline.
-    /// @param authorization Optional authorization payload for short-login registration.
-    /// @param referrerLogin Optional referrer login.
+    /// @param secret Commitment secret for canonical registration.
+    /// @param deadline Satellite authorization deadline, also bound into canonical commitments.
+    /// @param authorization Satellite authorization payload, also bound into canonical commitments.
+    /// @param referrerLogin Optional canonical referrer login; must be empty on satellite registries.
     /// @return wallet Deployed wallet clone address.
     function deployWallet(
         string calldata login,

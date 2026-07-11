@@ -6,6 +6,7 @@ import {BaseMERAWallet} from "../src/BaseMERAWallet.sol";
 import {MERAWalletConstants} from "../src/constants/MERAWalletConstants.sol";
 import {MERAWalletLoginRegistryConstants} from "../src/constants/MERAWalletLoginRegistryConstants.sol";
 import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
+import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
 import {MERAWalletLoginMerkleGuardian} from "../src/guardian/MERAWalletLoginMerkleGuardian.sol";
 import {Hashes} from "@openzeppelin/contracts/utils/cryptography/Hashes.sol";
 
@@ -32,7 +33,7 @@ contract MERAWalletLoginMerkleGuardianTest is Test {
     bytes32 internal loginRoot;
 
     function setUp() public {
-        registry = new MERAWalletLoginRegistry(owner, false);
+        registry = new MERAWalletLoginRegistry(owner, MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
         vm.prank(owner);
         registry.addFactory(address(this));
 

@@ -2,13 +2,14 @@
 pragma solidity 0.8.34;
 
 import {IMERAWalletLoginRegistryMigration} from "./IMERAWalletLoginRegistryMigration.sol";
+import {MERAWalletLoginRegistryTypes} from "../types/MERAWalletLoginRegistryTypes.sol";
 
 /// @notice External API of MERAWalletLoginRegistry (numeric bounds live in {MERAWalletLoginRegistryConstants}).
 interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
-    /// @notice Optional authorization verifier used for short-login registrations.
+    /// @notice Authorization verifier used by satellite registrations and migration replays.
     function authorizationVerifier() external view returns (address);
-    /// @notice Whether short paid logins require verifier authorization.
-    function REQUIRE_SHORT_LOGIN_AUTHORIZATION() external view returns (bool);
+    /// @notice Operating mode selected permanently at registry deployment.
+    function REGISTRY_MODE() external view returns (MERAWalletLoginRegistryTypes.RegistryMode);
     /// @notice Returns whether `factory` may register logins.
     function isFactory(address factory) external view returns (bool allowed);
     /// @dev Zero means absent; otherwise value is `committedAt + 1` for the matching commitment.
@@ -47,7 +48,7 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
     /// @notice Stores a login registration commitment.
     function commit(bytes32 commitment) external;
 
-    /// @notice Registers `login` for `wallet` after validating commitment, payment, and optional authorization.
+    /// @notice Registers `login` after canonical commitment/payment or satellite authorization validation.
     function registerLogin(
         string calldata login,
         address wallet,
