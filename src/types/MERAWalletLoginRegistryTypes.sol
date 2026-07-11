@@ -38,4 +38,24 @@ library MERAWalletLoginRegistryTypes {
         /// @notice Opaque authorization payload consumed by the verifier.
         bytes authorization;
     }
+
+    /// @notice Inputs passed to the verifier when replaying a canonical login swap on a satellite registry.
+    struct MigrationValidationParams {
+        /// @notice Satellite registry applying the canonical swap.
+        address registry;
+        /// @notice Login hash moving from `previousWallet` to `newWallet`.
+        bytes32 oldLoginHash;
+        /// @notice Login hash moving from `newWallet` to `previousWallet`.
+        bytes32 newLoginHash;
+        /// @notice Wallet owning `oldLoginHash` before the swap.
+        address previousWallet;
+        /// @notice Wallet owning `newLoginHash` before the swap.
+        address newWallet;
+        /// @notice Registry-wide satellite replay sequence number.
+        uint256 nonce;
+        /// @notice Authorization expiry timestamp.
+        uint256 deadline;
+        /// @notice Opaque authorization payload consumed by the verifier.
+        bytes authorization;
+    }
 }

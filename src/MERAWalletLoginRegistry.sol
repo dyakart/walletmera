@@ -38,6 +38,8 @@ contract MERAWalletLoginRegistry is
         override pendingLoginMigrationByOldLoginHash;
     /// @notice Expiry timestamp for each pending migration; zero means absent.
     mapping(bytes32 oldLoginHash => uint256 expiresAt) public override pendingLoginMigrationExpiresAtByOldLoginHash;
+    /// @notice Next registry-wide authorization nonce for canonical migration replays on a satellite registry.
+    uint256 public override satelliteMigrationNonce;
     mapping(bytes32 loginHash => string login) private _loginByHash;
 
     /// @notice Base paid-login price.
@@ -204,10 +206,54 @@ contract MERAWalletLoginRegistry is
         emit LoginReferralRecorded(loginHash, referrerLoginHash, referrerLogin);
     }
 
-    /// @notice Requests migration of `oldLogin` to `newLogin` and `newWallet`.
+    /// @inheritdoc IMERAWalletLoginRegistry
+    function applyAuthorizedLoginMigration(
+        string calldata oldLogin,
+        string calldata newLogin,
+        uint256 deadline,
+        bytes calldata authorization
+    ) external override onlySatellite {
+        bytes32 oldLoginHash = _requireLoginHash(oldLogin);
+        bytes32 newLoginHash = _requireLoginHash(newLogin);
+        require(oldLoginHash != newLoginHash, LoginAlreadyRegistered());
+
+        address previousWallet = walletByLoginHash[oldLoginHash];
+        address newWallet = walletByLoginHash[newLoginHash];
+        require(
+            previousWallet != address(0) && newWallet != address(0) && previousWallet != newWallet
+                && loginHashByWallet[previousWallet] == oldLoginHash && loginHashByWallet[newWallet] == newLoginHash,
+            LoginMigrationStale()
+        );
+        _requireMatchingGuardianAndEmergency(previousWallet, newWallet);
+
+        address verifier = authorizationVerifier;
+        require(verifier != address(0), AuthorizationVerifierNotSet());
+        uint256 nonce = satelliteMigrationNonce;
+        MERAWalletLoginRegistryTypes.MigrationValidationParams memory migrationValidation =
+            MERAWalletLoginRegistryTypes.MigrationValidationParams({
+                registry: address(this),
+                oldLoginHash: oldLoginHash,
+                newLoginHash: newLoginHash,
+                previousWallet: previousWallet,
+                newWallet: newWallet,
+                nonce: nonce,
+                deadline: deadline,
+                authorization: authorization
+            });
+        // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
+        IMERALoginAuthorizationVerifier(verifier).validateMigration(migrationValidation);
+        satelliteMigrationNonce = nonce + 1;
+
+        emit CanonicalLoginMigrationApplied(oldLoginHash, newLoginHash, previousWallet, newWallet, nonce);
+        emit LoginMigrationConfirmed(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
+        _swapLoginOwnership(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
+    }
+
+    /// @notice Requests an exchange of the logins currently owned by the caller and `newWallet`.
     function requestLoginMigration(string calldata oldLogin, string calldata newLogin, address newWallet)
         external
         override
+        onlyCanonical
     {
         require(newWallet != address(0), InvalidAddress());
         require(newWallet != msg.sender, SameWallet());
@@ -237,8 +283,8 @@ contract MERAWalletLoginRegistry is
         emit LoginMigrationRequested(oldLoginHash, oldLogin, newLoginHash, newLogin, msg.sender, newWallet);
     }
 
-    /// @notice Cancels a pending login migration as the requesting wallet.
-    function cancelLoginMigration(string calldata oldLogin) external override {
+    /// @notice Cancels a pending login exchange as the requesting wallet.
+    function cancelLoginMigration(string calldata oldLogin) external override onlyCanonical {
         bytes32 oldLoginHash = _requireLoginHash(oldLogin);
         MERAWalletLoginRegistryTypes.PendingLoginMigration memory migration =
             pendingLoginMigrationByOldLoginHash[oldLoginHash];
@@ -252,8 +298,8 @@ contract MERAWalletLoginRegistry is
         );
     }
 
-    /// @notice Confirms a pending login migration as the new wallet.
-    function confirmLoginMigration(string calldata oldLogin) external override {
+    /// @notice Confirms a pending login exchange as the other wallet.
+    function confirmLoginMigration(string calldata oldLogin) external override onlyCanonical {
         bytes32 oldLoginHash = _requireLoginHash(oldLogin);
         MERAWalletLoginRegistryTypes.PendingLoginMigration memory migration =
             pendingLoginMigrationByOldLoginHash[oldLoginHash];
@@ -276,15 +322,10 @@ contract MERAWalletLoginRegistry is
 
         string memory newLogin = _loginByHash[newLoginHash];
 
-        walletByLoginHash[oldLoginHash] = newWallet;
-        walletByLoginHash[newLoginHash] = previousWallet;
-        loginHashByWallet[previousWallet] = newLoginHash;
-        loginHashByWallet[newWallet] = oldLoginHash;
         _clearPendingLoginMigration(oldLoginHash);
 
         emit LoginMigrationConfirmed(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
-        emit LoginTransferred(oldLoginHash, oldLogin, previousWallet, newWallet);
-        emit LoginTransferred(newLoginHash, newLogin, newWallet, previousWallet);
+        _swapLoginOwnership(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
@@ -391,6 +432,23 @@ contract MERAWalletLoginRegistry is
     function _clearPendingLoginMigration(bytes32 oldLoginHash) private {
         delete pendingLoginMigrationByOldLoginHash[oldLoginHash];
         delete pendingLoginMigrationExpiresAtByOldLoginHash[oldLoginHash];
+    }
+
+    function _swapLoginOwnership(
+        bytes32 oldLoginHash,
+        string calldata oldLogin,
+        bytes32 newLoginHash,
+        string memory newLogin,
+        address previousWallet,
+        address newWallet
+    ) private {
+        walletByLoginHash[oldLoginHash] = newWallet;
+        walletByLoginHash[newLoginHash] = previousWallet;
+        loginHashByWallet[previousWallet] = newLoginHash;
+        loginHashByWallet[newWallet] = oldLoginHash;
+
+        emit LoginTransferred(oldLoginHash, oldLogin, previousWallet, newWallet);
+        emit LoginTransferred(newLoginHash, newLogin, newWallet, previousWallet);
     }
 
     /// @dev Ensures both wallets share the same guardian and emergency roles before login migration.

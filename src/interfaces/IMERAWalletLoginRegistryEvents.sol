@@ -43,6 +43,14 @@ interface IMERAWalletLoginRegistryEvents {
         address indexed previousWallet,
         address newWallet
     );
+    /// @notice Emitted when a satellite registry applies an authorizer-approved canonical login swap.
+    event CanonicalLoginMigrationApplied(
+        bytes32 indexed oldLoginHash,
+        bytes32 indexed newLoginHash,
+        address indexed previousWallet,
+        address newWallet,
+        uint256 nonce
+    );
     /// @notice Emitted when the base paid-login price changes.
     event BaseLoginPriceUpdated(uint256 previousPrice, uint256 newPrice);
     /// @notice Emitted when the short-login multiplier changes.

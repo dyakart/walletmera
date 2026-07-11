@@ -30,6 +30,8 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
         external
         view
         returns (uint256 expiresAt);
+    /// @notice Next registry-wide replay nonce for a canonical migration.
+    function satelliteMigrationNonce() external view returns (uint256 nonce);
     /// @notice Base paid-login price.
     function baseLoginPrice() external view returns (uint256);
     /// @notice Multiplier applied to shorter paid logins.
@@ -60,6 +62,14 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
 
     /// @notice Sets the caller wallet's referrer login once.
     function setReferrer(string calldata referrerLogin) external;
+
+    /// @notice Applies an authorizer-approved canonical login swap to a satellite registry.
+    function applyAuthorizedLoginMigration(
+        string calldata oldLogin,
+        string calldata newLogin,
+        uint256 deadline,
+        bytes calldata authorization
+    ) external;
 
     /// @notice Returns the registration price for `login`.
     function priceOf(string calldata login) external view returns (uint256);
