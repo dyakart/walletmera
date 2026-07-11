@@ -2,16 +2,29 @@
 include .env
 
 export PRIVATE_KEY
+export WALLET_MERA_LOGIN_AUTHORIZER_ADDRESS
+export WALLET_MERA_GOVERNANCE_ADDRESS
+export RPC_URL_ETHEREUM
 export RPC_URL_POLYGON
 export RPC_URL_AMOY
 export RPC_URL_BSC
-export POLYGONSCAN_API_KEY
-export BSCSCAN_API_KEY
+export RPC_URL_BASE
+export RPC_URL_ARBITRUM
+export RPC_URL_SEPOLIA
+export RPC_URL_HARDHAT
+export ETHERSCAN_API_KEY
+
+# Legacy checker targets use explorer-specific names; Etherscan V2 accepts the same key for supported chains.
+POLYGONSCAN_API_KEY ?= $(ETHERSCAN_API_KEY)
+BSCSCAN_API_KEY ?= $(ETHERSCAN_API_KEY)
 
 FORGE ?= forge
 SCRIPT := script/DeployMERAWalletMetaProxyCloneFactory.s.sol:DeployMERAWalletMetaProxyCloneFactory
+STACK_SCRIPT := script/DeployMERAWalletStack.s.sol:DeployMERAWalletStack
 
 .PHONY: deploy-factory-polygon deploy-factory-amoy deploy-factory-bsc deploy-factory
+.PHONY: deploy-stack deploy-stack-ethereum deploy-stack-polygon deploy-stack-bsc deploy-stack-base
+.PHONY: deploy-stack-arbitrum deploy-stack-amoy deploy-stack-sepolia deploy-stack-hardhat
 .PHONY: deploy-meta-proxy-clone-factory deploy-meta-proxy-clone-factory-polygon deploy-meta-proxy-clone-factory-amoy deploy-meta-proxy-clone-factory-bsc
 .PHONY: deploy-asset-whitelist-polygon deploy-asset-whitelist-amoy deploy-asset-whitelist-bsc
 .PHONY: deploy-whitelist-router-polygon deploy-whitelist-router-amoy deploy-whitelist-router-bsc
@@ -63,6 +76,37 @@ deploy-factory-amoy:
 
 deploy-factory-bsc:
 	@$(MAKE) deploy-factory RPC_URL="$(RPC_URL_BSC)" CHAIN_ID=56 VERIFY_API_KEY="$(BSCSCAN_API_KEY)"
+
+# Complete deterministic WalletMera stack. Ethereum/Sepolia are canonical; other listed networks are satellites.
+deploy-stack:
+	@$(FORGE) script $(STACK_SCRIPT) --force --rpc-url $(RPC_URL) --chain $(CHAIN_ID) --broadcast \
+		$(if $(strip $(DEPLOY_WITH_GAS_PRICE)),--with-gas-price $(DEPLOY_WITH_GAS_PRICE),) \
+		$(if $(strip $(DEPLOY_PRIORITY_GAS_PRICE)),--priority-gas-price $(DEPLOY_PRIORITY_GAS_PRICE),) \
+		$(if $(strip $(VERIFY_API_KEY)),--verify --etherscan-api-key $(VERIFY_API_KEY),) -vvvv
+
+deploy-stack-ethereum:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_ETHEREUM)" CHAIN_ID=1 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-polygon:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_POLYGON)" CHAIN_ID=137 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-bsc:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_BSC)" CHAIN_ID=56 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-base:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_BASE)" CHAIN_ID=8453 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-arbitrum:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_ARBITRUM)" CHAIN_ID=42161 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-amoy:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_AMOY)" CHAIN_ID=80002 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-sepolia:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_SEPOLIA)" CHAIN_ID=11155111 VERIFY_API_KEY="$(ETHERSCAN_API_KEY)"
+
+deploy-stack-hardhat:
+	@$(MAKE) deploy-stack RPC_URL="$(RPC_URL_HARDHAT)" CHAIN_ID=31337
 
 deploy-meta-proxy-clone-factory:
 	@$(MAKE) deploy-factory SCRIPT=script/DeployMERAWalletMetaProxyCloneFactory.s.sol:DeployMERAWalletMetaProxyCloneFactory
