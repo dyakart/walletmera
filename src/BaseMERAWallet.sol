@@ -124,6 +124,18 @@ contract BaseMERAWallet is IBaseMERAWallet, IBaseMERAWalletEvents, IBaseMERAWall
     }
 
     /// @inheritdoc IBaseMERAWallet
+    function initialize(MERAWalletTypes.WalletInitParams calldata params) external override {
+        require(primary == address(0), AlreadyInitialized());
+        _initialize(
+            params.initialPrimary,
+            params.initialBackup,
+            params.initialEmergency,
+            params.initialSigner,
+            params.initialGuardian
+        );
+    }
+
+    /// @inheritdoc IBaseMERAWallet
     function setPrimary(address newPrimary) external override onlySelf whenLifeAlive {
         require(newPrimary != address(0), InvalidAddress());
         require(newPrimary != address(this), WalletCannotBeCoreRole());
