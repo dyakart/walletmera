@@ -3413,15 +3413,37 @@ contract BaseMERAWalletTest is Test {
 
         BaseMERAWallet newWallet = new BaseMERAWallet(primary, backup, emergency, address(0), address(0));
         bytes32 oldSecret = keccak256("old");
-        registry.commit(registry.makeCommitment("old", address(wallet), address(this), oldSecret, 0, keccak256(""), ""));
-        skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf("old")}("old", address(wallet), oldSecret, 0, "", "");
-        bytes32 newSecret = keccak256("new");
+        bytes32 oldWalletId = keccak256(bytes("old"));
+        bytes32 oldInitParamsHash = keccak256("old init");
         registry.commit(
-            registry.makeCommitment("new", address(newWallet), address(this), newSecret, 0, keccak256(""), "")
+            registry.makeCommitment(
+                "old", oldWalletId, address(wallet), address(this), oldInitParamsHash, oldSecret, 0, keccak256(""), ""
+            )
         );
         skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf("new")}("new", address(newWallet), newSecret, 0, "", "");
+        registry.registerLogin{value: registry.priceOf("old")}(
+            "old", oldWalletId, address(wallet), oldInitParamsHash, oldSecret, 0, "", ""
+        );
+        bytes32 newSecret = keccak256("new");
+        bytes32 newWalletId = keccak256(bytes("new"));
+        bytes32 newInitParamsHash = keccak256("new init");
+        registry.commit(
+            registry.makeCommitment(
+                "new",
+                newWalletId,
+                address(newWallet),
+                address(this),
+                newInitParamsHash,
+                newSecret,
+                0,
+                keccak256(""),
+                ""
+            )
+        );
+        skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
+        registry.registerLogin{value: registry.priceOf("new")}(
+            "new", newWalletId, address(newWallet), newInitParamsHash, newSecret, 0, "", ""
+        );
 
         vm.startPrank(emergency);
         _executeEmergencyWalletSelfCallTimelockedOn(

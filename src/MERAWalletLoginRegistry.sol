@@ -30,6 +30,10 @@ contract MERAWalletLoginRegistry is
     mapping(bytes32 loginHash => address wallet) public override walletByLoginHash;
     /// @notice Login hash registered for each wallet.
     mapping(address wallet => bytes32 loginHash) public override loginHashByWallet;
+    /// @notice Wallet registered for each immutable wallet identity.
+    mapping(bytes32 walletId => address wallet) public override walletByWalletId;
+    /// @notice Immutable identity assigned to each wallet.
+    mapping(address wallet => bytes32 walletId) public override walletIdByWallet;
     /// @notice Referrer login hash recorded for each login hash.
     mapping(bytes32 loginHash => bytes32 referrerLoginHash) public override referrerLoginHashByLoginHash;
     /// @notice Pending migration data by old login hash.
@@ -129,7 +133,9 @@ contract MERAWalletLoginRegistry is
     /// @inheritdoc IMERAWalletLoginRegistry
     function registerLogin(
         string calldata login,
+        bytes32 walletId,
         address wallet,
+        bytes32 initParamsHash,
         bytes32 secret,
         uint256 deadline,
         bytes calldata authorization,
@@ -138,6 +144,10 @@ contract MERAWalletLoginRegistry is
         require(wallet != address(0), InvalidAddress());
         bytes32 loginHash = _requireLoginHash(login);
         bool isSatellite = REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite;
+        require(walletId != bytes32(0), InvalidWalletId());
+        if (!isSatellite) {
+            require(walletId == loginHash, InvalidWalletId());
+        }
         bytes32 referrerLoginHash = bytes32(0);
         if (isSatellite) {
             require(bytes(referrerLogin).length == 0, SatelliteReferralNotAllowed());
@@ -146,6 +156,7 @@ contract MERAWalletLoginRegistry is
         }
         require(walletByLoginHash[loginHash] == address(0), LoginAlreadyRegistered());
         require(loginHashByWallet[wallet] == bytes32(0), AddressAlreadyHasLogin());
+        require(walletByWalletId[walletId] == address(0) && walletIdByWallet[wallet] == bytes32(0), InvalidWalletId());
 
         uint256 loginLength = bytes(login).length;
         if (isSatellite) {
@@ -157,8 +168,10 @@ contract MERAWalletLoginRegistry is
                     registry: address(this),
                     factory: msg.sender,
                     loginHash: loginHash,
+                    walletId: walletId,
                     login: login,
                     wallet: wallet,
+                    initParamsHash: initParamsHash,
                     deadline: deadline,
                     authorization: authorization
                 });
@@ -167,7 +180,15 @@ contract MERAWalletLoginRegistry is
         } else {
             require(msg.value == _priceOfValidatedLength(loginLength), InvalidPayment());
             bytes32 commitment = _makeCommitment(
-                login, wallet, msg.sender, secret, deadline, keccak256(authorization), referrerLoginHash
+                login,
+                walletId,
+                wallet,
+                msg.sender,
+                initParamsHash,
+                secret,
+                deadline,
+                keccak256(authorization),
+                referrerLoginHash
             );
             uint256 committedAtPlusOne = commitments[commitment];
             require(committedAtPlusOne != 0, CommitmentNotFound());
@@ -184,10 +205,13 @@ contract MERAWalletLoginRegistry is
 
         walletByLoginHash[loginHash] = wallet;
         loginHashByWallet[wallet] = loginHash;
+        walletByWalletId[walletId] = wallet;
+        walletIdByWallet[wallet] = walletId;
         referrerLoginHashByLoginHash[loginHash] = referrerLoginHash;
         _loginByHash[loginHash] = login;
 
         emit LoginRegistered(loginHash, login, wallet, msg.sender);
+        emit WalletIdentityRegistered(walletId, wallet);
         emit LoginReferralRecorded(loginHash, referrerLoginHash, referrerLogin);
     }
 
@@ -356,6 +380,14 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
+    function walletIdOf(string calldata login) external view override returns (bytes32) {
+        if (bytes(login).length == 0) {
+            return bytes32(0);
+        }
+        return walletIdByWallet[walletByLoginHash[_loginHash(login)]];
+    }
+
+    /// @inheritdoc IMERAWalletLoginRegistry
     function referrerLoginHashOf(string calldata login) external view override returns (bytes32) {
         if (bytes(login).length == 0) {
             return bytes32(0);
@@ -379,15 +411,25 @@ contract MERAWalletLoginRegistry is
     /// @inheritdoc IMERAWalletLoginRegistry
     function makeCommitment(
         string calldata login,
+        bytes32 walletId,
         address wallet,
         address factory,
+        bytes32 initParamsHash,
         bytes32 secret,
         uint256 deadline,
         bytes32 authorizationHash,
         string calldata referrerLogin
     ) external pure override returns (bytes32) {
         return _makeCommitment(
-            login, wallet, factory, secret, deadline, authorizationHash, _optionalLoginHash(referrerLogin)
+            login,
+            walletId,
+            wallet,
+            factory,
+            initParamsHash,
+            secret,
+            deadline,
+            authorizationHash,
+            _optionalLoginHash(referrerLogin)
         );
     }
 
@@ -490,17 +532,28 @@ contract MERAWalletLoginRegistry is
 
     function _makeCommitment(
         string calldata login,
+        bytes32 walletId,
         address wallet,
         address factory,
+        bytes32 initParamsHash,
         bytes32 secret,
         uint256 deadline,
         bytes32 authorizationHash,
         bytes32 referrerLoginHash
     ) private pure returns (bytes32) {
         require(wallet != address(0) && factory != address(0), InvalidAddress());
+        require(walletId != bytes32(0), InvalidWalletId());
         return keccak256(
             abi.encode(
-                _requireLoginHash(login), wallet, factory, secret, deadline, authorizationHash, referrerLoginHash
+                _requireLoginHash(login),
+                walletId,
+                wallet,
+                factory,
+                initParamsHash,
+                secret,
+                deadline,
+                authorizationHash,
+                referrerLoginHash
             )
         );
     }

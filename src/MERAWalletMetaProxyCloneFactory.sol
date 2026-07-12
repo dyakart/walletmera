@@ -7,15 +7,19 @@ import {BaseMERAWallet} from "./BaseMERAWallet.sol";
 import {IMERAWalletLoginRegistry} from "./interfaces/IMERAWalletLoginRegistry.sol";
 
 /// @title MERAWalletMetaProxyCloneFactory
-/// @notice Deploys deterministic `BaseMERAWallet` meta-proxy clones with init params embedded as immutable args.
+/// @notice Deploys deterministic `BaseMERAWallet` clones whose addresses are independent of controller roles.
 contract MERAWalletMetaProxyCloneFactory {
     /// @notice Base wallet implementation cloned by this factory.
     address public immutable WALLET_IMPLEMENTATION;
     /// @notice Login registry used when registering deployed wallets.
     IMERAWalletLoginRegistry public immutable LOGIN_REGISTRY;
+    /// @notice Versioned namespace used in wallet salts.
+    bytes32 public constant WALLET_NAMESPACE = keccak256("WalletMera.Account.v2");
 
     /// @notice Emitted after a wallet clone is deployed and registered.
     event WalletDeployed(bytes32 indexed loginHash, string login, address wallet);
+    /// @notice Emitted with the immutable identity and exact active state used for initialization.
+    event WalletIdentityDeployed(bytes32 indexed walletId, address indexed wallet, bytes32 indexed initParamsHash);
 
     /// @notice Reverts when the requested login is already registered.
     error LoginAlreadyRegistered();
@@ -23,6 +27,8 @@ contract MERAWalletMetaProxyCloneFactory {
     error WalletImplementationNotDeployed();
     /// @notice Reverts when the login registry address has no code.
     error LoginRegistryNotDeployed();
+    /// @notice Reverts when the wallet identity is zero.
+    error InvalidWalletIdentity();
 
     /// @notice Creates the factory.
     /// @param walletImplementation Base wallet implementation to clone.
@@ -36,7 +42,8 @@ contract MERAWalletMetaProxyCloneFactory {
 
     /// @notice Deploys a deterministic wallet clone and registers `login`.
     /// @param login Login to register for the new wallet.
-    /// @param params Wallet initialization parameters embedded as immutable args.
+    /// @param walletId Immutable identity assigned during canonical creation.
+    /// @param params Active wallet state; it does not affect the deterministic address.
     /// @param secret Commitment secret for canonical registration.
     /// @param deadline Satellite authorization deadline, also bound into canonical commitments.
     /// @param authorization Satellite authorization payload, also bound into canonical commitments.
@@ -44,34 +51,45 @@ contract MERAWalletMetaProxyCloneFactory {
     /// @return wallet Deployed wallet clone address.
     function deployWallet(
         string calldata login,
+        bytes32 walletId,
         MERAWalletTypes.WalletInitParams calldata params,
         bytes32 secret,
         uint256 deadline,
         bytes calldata authorization,
         string calldata referrerLogin
     ) external payable returns (address wallet) {
+        require(walletId != bytes32(0), InvalidWalletIdentity());
         bytes32 loginHash = _loginHash(login);
         require(LOGIN_REGISTRY.walletByLoginHash(loginHash) == address(0), LoginAlreadyRegistered());
 
-        wallet = Clones.cloneDeterministicWithImmutableArgs(WALLET_IMPLEMENTATION, abi.encode(params), loginHash);
-        BaseMERAWallet(payable(wallet)).initializeFromImmutableArgs();
+        bytes32 initParamsHash = hashInitParams(params);
+        wallet = Clones.cloneDeterministic(WALLET_IMPLEMENTATION, walletSalt(walletId));
+        BaseMERAWallet(payable(wallet)).initialize(params);
 
-        LOGIN_REGISTRY.registerLogin{value: msg.value}(login, wallet, secret, deadline, authorization, referrerLogin);
+        LOGIN_REGISTRY.registerLogin{value: msg.value}(
+            login, walletId, wallet, initParamsHash, secret, deadline, authorization, referrerLogin
+        );
         emit WalletDeployed(loginHash, login, wallet);
+        emit WalletIdentityDeployed(walletId, wallet, initParamsHash);
     }
 
-    /// @notice Counterfactual wallet address for `login` and `params` using this factory as CREATE2 deployer.
-    /// @param login Login used as the deterministic salt source.
-    /// @param params Wallet initialization parameters embedded as immutable args.
+    /// @notice Counterfactual wallet address for an immutable wallet identity.
+    /// @param walletId Identity assigned by the canonical registry.
     /// @return Counterfactual wallet address.
-    function predictWallet(string calldata login, MERAWalletTypes.WalletInitParams calldata params)
-        external
-        view
-        returns (address)
-    {
-        return Clones.predictDeterministicAddressWithImmutableArgs(
-            WALLET_IMPLEMENTATION, abi.encode(params), _loginHash(login), address(this)
-        );
+    function predictWallet(bytes32 walletId) external view returns (address) {
+        require(walletId != bytes32(0), InvalidWalletIdentity());
+        return Clones.predictDeterministicAddress(WALLET_IMPLEMENTATION, walletSalt(walletId), address(this));
+    }
+
+    /// @notice Returns the namespaced CREATE2 salt for an immutable wallet identity.
+    function walletSalt(bytes32 walletId) public view returns (bytes32) {
+        require(walletId != bytes32(0), InvalidWalletIdentity());
+        return keccak256(abi.encode(WALLET_NAMESPACE, walletId));
+    }
+
+    /// @notice Commits the exact state that a newly deployed clone will activate.
+    function hashInitParams(MERAWalletTypes.WalletInitParams calldata params) public pure returns (bytes32) {
+        return keccak256(abi.encode(params));
     }
 
     function _loginHash(string calldata login) private pure returns (bytes32 loginHash) {

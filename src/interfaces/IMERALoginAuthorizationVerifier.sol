@@ -5,7 +5,7 @@ import {MERAWalletLoginRegistryTypes} from "../types/MERAWalletLoginRegistryType
 
 /// @notice Verifier hooks used by satellite registries for canonical login registrations and swaps.
 interface IMERALoginAuthorizationVerifier {
-    /// @notice Validates a login registration request.
+    /// @notice Validates a login registration request, immutable identity, and initial active state.
     /// @param params Registration context supplied by {MERAWalletLoginRegistry}.
     /// @dev Reverts when the registration is not authorized.
     function validateRegistration(MERAWalletLoginRegistryTypes.RegistrationValidationParams calldata params)

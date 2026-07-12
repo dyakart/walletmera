@@ -23,6 +23,8 @@ interface IMERAWalletLoginRegistryErrors {
     error LoginNotOwned();
     /// @notice Wallet already has a registered login.
     error AddressAlreadyHasLogin();
+    /// @notice Wallet identity is zero, already registered, or inconsistent with canonical creation.
+    error InvalidWalletId();
     /// @notice Referrer login is not registered.
     error ReferrerLoginNotRegistered();
     /// @notice Referrer was already set.

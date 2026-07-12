@@ -551,9 +551,17 @@ contract MERAWalletLoginMerkleGuardianTest is Test {
 
     function _registerLogin(string memory login, address wallet_) internal {
         bytes32 secret = keccak256(abi.encode(login, wallet_));
-        registry.commit(registry.makeCommitment(login, wallet_, address(this), secret, 0, keccak256(""), ""));
+        bytes32 walletId = keccak256(bytes(login));
+        bytes32 initParamsHash = keccak256(abi.encode(wallet_));
+        registry.commit(
+            registry.makeCommitment(
+                login, walletId, wallet_, address(this), initParamsHash, secret, 0, keccak256(""), ""
+            )
+        );
         skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf(login)}(login, wallet_, secret, 0, "", "");
+        registry.registerLogin{value: registry.priceOf(login)}(
+            login, walletId, wallet_, initParamsHash, secret, 0, "", ""
+        );
     }
 
     function _loginHash(string memory login) internal pure returns (bytes32) {

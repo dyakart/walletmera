@@ -11,7 +11,7 @@ import {MERAWalletLoginRegistryTypes} from "./types/MERAWalletLoginRegistryTypes
 contract MERALoginSignatureVerifier is EIP712, IMERALoginAuthorizationVerifier {
     /// @notice EIP-712 type hash for login authorization messages.
     bytes32 public constant AUTHORIZATION_TYPEHASH = keccak256(
-        "LoginAuthorization(address registry,address factory,bytes32 loginHash,address wallet,uint256 chainId,uint256 deadline)"
+        "LoginAuthorization(address registry,address factory,bytes32 loginHash,bytes32 walletId,address wallet,bytes32 initParamsHash,uint256 chainId,uint256 deadline)"
     );
     /// @notice EIP-712 type hash for canonical login swaps replayed on satellite registries.
     bytes32 public constant MIGRATION_AUTHORIZATION_TYPEHASH = keccak256(
@@ -30,7 +30,7 @@ contract MERALoginSignatureVerifier is EIP712, IMERALoginAuthorizationVerifier {
 
     /// @notice Creates a verifier bound to `authorizer`.
     /// @param authorizer EOA or EIP-1271 wallet allowed to sign login authorizations.
-    constructor(address authorizer) EIP712("MERA Login Authorization", "1") {
+    constructor(address authorizer) EIP712("MERA Login Authorization", "2") {
         require(authorizer != address(0), InvalidAuthorizer());
         AUTHORIZER = authorizer;
     }
@@ -41,7 +41,13 @@ contract MERALoginSignatureVerifier is EIP712, IMERALoginAuthorizationVerifier {
         view
     {
         bytes32 digest = hashAuthorization(
-            params.registry, params.factory, params.loginHash, params.wallet, params.deadline
+            params.registry,
+            params.factory,
+            params.loginHash,
+            params.walletId,
+            params.wallet,
+            params.initParamsHash,
+            params.deadline
         );
         _validateAuthorization(digest, params.deadline, params.authorization);
     }
@@ -64,16 +70,34 @@ contract MERALoginSignatureVerifier is EIP712, IMERALoginAuthorizationVerifier {
     /// @param registry Registry address included in the authorization.
     /// @param factory Factory address included in the authorization.
     /// @param loginHash Login hash included in the authorization.
+    /// @param walletId Immutable wallet identity included in the authorization.
     /// @param wallet Wallet address included in the authorization.
+    /// @param initParamsHash Exact active initialization state included in the authorization.
     /// @param deadline Authorization deadline.
     /// @return EIP-712 digest for signature validation.
-    function hashAuthorization(address registry, address factory, bytes32 loginHash, address wallet, uint256 deadline)
-        public
-        view
-        returns (bytes32)
-    {
+    function hashAuthorization(
+        address registry,
+        address factory,
+        bytes32 loginHash,
+        bytes32 walletId,
+        address wallet,
+        bytes32 initParamsHash,
+        uint256 deadline
+    ) public view returns (bytes32) {
         return _hashTypedDataV4(
-            keccak256(abi.encode(AUTHORIZATION_TYPEHASH, registry, factory, loginHash, wallet, block.chainid, deadline))
+            keccak256(
+                abi.encode(
+                    AUTHORIZATION_TYPEHASH,
+                    registry,
+                    factory,
+                    loginHash,
+                    walletId,
+                    wallet,
+                    initParamsHash,
+                    block.chainid,
+                    deadline
+                )
+            )
         );
     }
 

@@ -29,10 +29,14 @@ library MERAWalletLoginRegistryTypes {
         address factory;
         /// @notice Keccak256 hash of the login string.
         bytes32 loginHash;
+        /// @notice Immutable wallet identity assigned on the canonical registry.
+        bytes32 walletId;
         /// @notice Plain-text login being registered.
         string login;
         /// @notice Wallet address being registered.
         address wallet;
+        /// @notice Hash of the exact controller state used to initialize the wallet.
+        bytes32 initParamsHash;
         /// @notice Authorization deadline supplied by the caller.
         uint256 deadline;
         /// @notice Opaque authorization payload consumed by the verifier.

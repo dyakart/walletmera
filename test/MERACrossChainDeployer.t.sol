@@ -11,7 +11,6 @@ import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
 import {MERAWalletMetaProxyCloneFactory} from "../src/MERAWalletMetaProxyCloneFactory.sol";
 import {MERACrossChainDeploymentConstants} from "../src/constants/MERACrossChainDeploymentConstants.sol";
 import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
-import {MERAWalletTypes} from "../src/types/MERAWalletTypes.sol";
 
 contract CrossChainDeploymentTarget {
     uint256 public immutable VALUE;
@@ -149,13 +148,6 @@ contract MERACrossChainDeployerTest is Test {
             )
         );
 
-        MERAWalletTypes.WalletInitParams memory params = MERAWalletTypes.WalletInitParams({
-            initialPrimary: address(0xA11CE),
-            initialBackup: address(0xB0B),
-            initialEmergency: address(0xE911),
-            initialSigner: address(0xA11CE),
-            initialGuardian: address(0xCAFE)
-        });
-        stack.wallet = MERAWalletMetaProxyCloneFactory(stack.factory).predictWallet("alice", params);
+        stack.wallet = MERAWalletMetaProxyCloneFactory(stack.factory).predictWallet(keccak256(bytes("alice")));
     }
 }

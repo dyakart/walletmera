@@ -11,6 +11,8 @@ interface IMERAWalletLoginRegistryEvents {
     event LoginCommitmentMade(bytes32 indexed commitment, uint256 committedAt);
     /// @notice Emitted when a login is registered for a wallet.
     event LoginRegistered(bytes32 indexed loginHash, string login, address indexed wallet, address indexed factory);
+    /// @notice Emitted once when an immutable wallet identity is registered.
+    event WalletIdentityRegistered(bytes32 indexed walletId, address indexed wallet);
     /// @notice Emitted when a referrer is recorded for a login.
     event LoginReferralRecorded(bytes32 indexed loginHash, bytes32 indexed referrerLoginHash, string referrerLogin);
     /// @notice Emitted when login ownership moves between wallets.
