@@ -13,8 +13,8 @@ contract MERAWalletMetaProxyCloneFactory {
     address public immutable WALLET_IMPLEMENTATION;
     /// @notice Login registry used when registering deployed wallets.
     IMERAWalletLoginRegistry public immutable LOGIN_REGISTRY;
-    /// @notice Versioned namespace used in wallet salts.
-    bytes32 public constant WALLET_NAMESPACE = keccak256("WalletMera.Account.v2");
+    /// @notice Versioned mainnet, testnet, or local namespace used in wallet salts.
+    bytes32 public immutable WALLET_NAMESPACE;
 
     /// @notice Emitted after a wallet clone is deployed and registered.
     event WalletDeployed(bytes32 indexed loginHash, string login, address wallet);
@@ -27,17 +27,20 @@ contract MERAWalletMetaProxyCloneFactory {
     error WalletImplementationNotDeployed();
     /// @notice Reverts when the login registry address has no code.
     error LoginRegistryNotDeployed();
-    /// @notice Reverts when the wallet identity is zero.
+    /// @notice Reverts when the wallet identity or deployment namespace is zero.
     error InvalidWalletIdentity();
 
     /// @notice Creates the factory.
     /// @param walletImplementation Base wallet implementation to clone.
     /// @param loginRegistry Registry used for login registration.
-    constructor(address walletImplementation, address loginRegistry) {
+    /// @param walletNamespace Versioned network-group namespace shared by equivalent chains.
+    constructor(address walletImplementation, address loginRegistry, bytes32 walletNamespace) {
         require(walletImplementation.code.length != 0, WalletImplementationNotDeployed());
         require(loginRegistry.code.length != 0, LoginRegistryNotDeployed());
+        require(walletNamespace != bytes32(0), InvalidWalletIdentity());
         WALLET_IMPLEMENTATION = walletImplementation;
         LOGIN_REGISTRY = IMERAWalletLoginRegistry(loginRegistry);
+        WALLET_NAMESPACE = walletNamespace;
     }
 
     /// @notice Deploys a deterministic wallet clone and registers `login`.

@@ -9,6 +9,8 @@ import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistry
 
 /// @notice Deploys the `BaseMERAWallet` implementation and `MERAWalletMetaProxyCloneFactory`.
 contract DeployMERAWalletMetaProxyCloneFactory is Script {
+    bytes32 private constant STANDALONE_WALLET_NAMESPACE = keccak256("WalletMera.Account.standalone.v2");
+
     function run()
         external
         returns (
@@ -24,7 +26,9 @@ contract DeployMERAWalletMetaProxyCloneFactory is Script {
         implementation = new BaseMERAWallet(address(1), address(2), address(3), address(0), address(0));
         // Canonical registry: all logins use commit-reveal; short logins are paid and long logins remain free.
         registry = new MERAWalletLoginRegistry(deployer, MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
-        factory = new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry));
+        factory = new MERAWalletMetaProxyCloneFactory(
+            address(implementation), address(registry), STANDALONE_WALLET_NAMESPACE
+        );
         registry.addFactory(address(factory));
 
         vm.stopBroadcast();

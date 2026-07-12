@@ -28,6 +28,7 @@ contract DeployMERAWalletStack is Script {
     error VerifierAuthorizerMismatch(address expected, address actual);
     error FactoryImplementationMismatch(address expected, address actual);
     error FactoryRegistryMismatch(address expected, address actual);
+    error FactoryWalletNamespaceMismatch(bytes32 expected, bytes32 actual);
 
     function run()
         external
@@ -44,6 +45,7 @@ contract DeployMERAWalletStack is Script {
         address governance = vm.envOr("WALLET_MERA_GOVERNANCE_ADDRESS", deployer);
         require(governance != address(0), InvalidGovernance());
         MERAWalletLoginRegistryTypes.RegistryMode registryMode = registryModeForChain(block.chainid);
+        bytes32 walletNamespace = walletNamespaceForChain(block.chainid);
 
         vm.startBroadcast(deployerPrivateKey);
 
@@ -78,7 +80,7 @@ contract DeployMERAWalletStack is Script {
                 MERACrossChainDeploymentConstants.WALLET_FACTORY_SALT,
                 abi.encodePacked(
                     type(MERAWalletMetaProxyCloneFactory).creationCode,
-                    abi.encode(address(implementation), address(registry))
+                    abi.encode(address(implementation), address(registry), walletNamespace)
                 )
             )
         );
@@ -88,6 +90,7 @@ contract DeployMERAWalletStack is Script {
             governance,
             authorizer,
             registryMode,
+            walletNamespace,
             crossChainDeployer,
             implementation,
             registry,
@@ -120,6 +123,7 @@ contract DeployMERAWalletStack is Script {
             governance,
             authorizer,
             registryMode,
+            walletNamespace,
             crossChainDeployer,
             implementation,
             registry,
@@ -135,6 +139,20 @@ contract DeployMERAWalletStack is Script {
         }
         if (chainId == 56 || chainId == 137 || chainId == 8_453 || chainId == 42_161 || chainId == 80_002) {
             return MERAWalletLoginRegistryTypes.RegistryMode.Satellite;
+        }
+        revert UnsupportedChain(chainId);
+    }
+
+    /// @notice Returns the versioned account namespace shared by one deterministic network group.
+    function walletNamespaceForChain(uint256 chainId) public pure returns (bytes32) {
+        if (chainId == 1 || chainId == 56 || chainId == 137 || chainId == 8_453 || chainId == 42_161) {
+            return MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE;
+        }
+        if (chainId == 80_002 || chainId == 11_155_111) {
+            return MERACrossChainDeploymentConstants.TESTNET_WALLET_NAMESPACE;
+        }
+        if (chainId == 31_337) {
+            return MERACrossChainDeploymentConstants.LOCAL_WALLET_NAMESPACE;
         }
         revert UnsupportedChain(chainId);
     }
@@ -181,6 +199,7 @@ contract DeployMERAWalletStack is Script {
         address governance,
         address authorizer,
         MERAWalletLoginRegistryTypes.RegistryMode registryMode,
+        bytes32 walletNamespace,
         MERACrossChainDeployer crossChainDeployer,
         BaseMERAWallet implementation,
         MERAWalletLoginRegistry registry,
@@ -211,6 +230,10 @@ contract DeployMERAWalletStack is Script {
             address(factory.LOGIN_REGISTRY()) == address(registry),
             FactoryRegistryMismatch(address(registry), address(factory.LOGIN_REGISTRY()))
         );
+        require(
+            factory.WALLET_NAMESPACE() == walletNamespace,
+            FactoryWalletNamespaceMismatch(walletNamespace, factory.WALLET_NAMESPACE())
+        );
     }
 
     function _validateOwners(
@@ -230,6 +253,7 @@ contract DeployMERAWalletStack is Script {
         address governance,
         address authorizer,
         MERAWalletLoginRegistryTypes.RegistryMode registryMode,
+        bytes32 walletNamespace,
         MERACrossChainDeployer crossChainDeployer,
         BaseMERAWallet implementation,
         MERAWalletLoginRegistry registry,
@@ -240,6 +264,7 @@ contract DeployMERAWalletStack is Script {
         console2.log("Governance:", governance);
         console2.log("Login authorizer:", authorizer);
         console2.log("Registry mode:", uint256(registryMode));
+        console2.logBytes32(walletNamespace);
         console2.log("MERACrossChainDeployer:", address(crossChainDeployer));
         console2.log("BaseMERAWallet implementation:", address(implementation));
         console2.log("MERAWalletLoginRegistry:", address(registry));

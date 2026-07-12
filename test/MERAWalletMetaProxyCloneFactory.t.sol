@@ -50,12 +50,13 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
     bytes32 internal secret = keccak256("secret");
     uint256 internal authorizerPk = 0xA11CE123;
     address internal authorizer;
+    bytes32 internal constant WALLET_NAMESPACE = keccak256("WalletMera.Account.test.v2");
 
     function setUp() public {
         authorizer = vm.addr(authorizerPk);
         implementation = new BaseMERAWallet(address(1), address(2), address(3), address(0), address(0));
         registry = new MERAWalletLoginRegistry(owner, MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
-        factory = new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry));
+        factory = new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry), WALLET_NAMESPACE);
 
         vm.prank(owner);
         registry.addFactory(address(factory));
@@ -67,7 +68,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         returns (MERAWalletLoginRegistry reg, MERAWalletMetaProxyCloneFactory fac)
     {
         reg = new MERAWalletLoginRegistry(owner, MERAWalletLoginRegistryTypes.RegistryMode.Satellite);
-        fac = new MERAWalletMetaProxyCloneFactory(address(implementation), address(reg));
+        fac = new MERAWalletMetaProxyCloneFactory(address(implementation), address(reg), WALLET_NAMESPACE);
         vm.prank(owner);
         reg.addFactory(address(fac));
     }
@@ -733,12 +734,17 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
 
     function test_constructor_reverts_for_implementation_without_code() public {
         vm.expectRevert(MERAWalletMetaProxyCloneFactory.WalletImplementationNotDeployed.selector);
-        new MERAWalletMetaProxyCloneFactory(address(0x1234), address(registry));
+        new MERAWalletMetaProxyCloneFactory(address(0x1234), address(registry), WALLET_NAMESPACE);
     }
 
     function test_constructor_reverts_for_registry_without_code() public {
         vm.expectRevert(MERAWalletMetaProxyCloneFactory.LoginRegistryNotDeployed.selector);
-        new MERAWalletMetaProxyCloneFactory(address(implementation), address(0x1234));
+        new MERAWalletMetaProxyCloneFactory(address(implementation), address(0x1234), WALLET_NAMESPACE);
+    }
+
+    function test_constructor_reverts_for_zero_wallet_namespace() public {
+        vm.expectRevert(MERAWalletMetaProxyCloneFactory.InvalidWalletIdentity.selector);
+        new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry), bytes32(0));
     }
 
     function test_registry_prices_short_logins_and_makes_long_logins_free() public view {

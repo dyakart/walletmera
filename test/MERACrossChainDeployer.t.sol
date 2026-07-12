@@ -72,7 +72,10 @@ contract MERACrossChainDeployerTest is Test {
 
     function testCanonicalAndSatelliteStacksHaveTheSameAddresses() public {
         uint256 snapshot = vm.snapshotState();
-        StackAddresses memory canonical = _deployStack(MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
+        StackAddresses memory canonical = _deployStack(
+            MERAWalletLoginRegistryTypes.RegistryMode.Canonical,
+            MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE
+        );
         assertEq(
             uint256(MERAWalletLoginRegistry(payable(canonical.registry)).REGISTRY_MODE()),
             uint256(MERAWalletLoginRegistryTypes.RegistryMode.Canonical)
@@ -80,7 +83,10 @@ contract MERACrossChainDeployerTest is Test {
 
         assertTrue(vm.revertToState(snapshot));
         vm.chainId(137);
-        StackAddresses memory satellite = _deployStack(MERAWalletLoginRegistryTypes.RegistryMode.Satellite);
+        StackAddresses memory satellite = _deployStack(
+            MERAWalletLoginRegistryTypes.RegistryMode.Satellite,
+            MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE
+        );
         assertEq(
             uint256(MERAWalletLoginRegistry(payable(satellite.registry)).REGISTRY_MODE()),
             uint256(MERAWalletLoginRegistryTypes.RegistryMode.Satellite)
@@ -91,6 +97,23 @@ contract MERACrossChainDeployerTest is Test {
         assertEq(satellite.verifier, canonical.verifier);
         assertEq(satellite.factory, canonical.factory);
         assertEq(satellite.wallet, canonical.wallet);
+    }
+
+    function testDifferentNetworkGroupsUseDifferentWalletAddresses() public {
+        uint256 snapshot = vm.snapshotState();
+        StackAddresses memory mainnet = _deployStack(
+            MERAWalletLoginRegistryTypes.RegistryMode.Canonical,
+            MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE
+        );
+
+        assertTrue(vm.revertToState(snapshot));
+        StackAddresses memory testnet = _deployStack(
+            MERAWalletLoginRegistryTypes.RegistryMode.Canonical,
+            MERACrossChainDeploymentConstants.TESTNET_WALLET_NAMESPACE
+        );
+
+        assertEq(testnet.factory, mainnet.factory);
+        assertNotEq(testnet.wallet, mainnet.wallet);
     }
 
     function testRegistryModeMapping() public {
@@ -118,11 +141,19 @@ contract MERACrossChainDeployerTest is Test {
             uint256(script.registryModeForChain(80_002)), uint256(MERAWalletLoginRegistryTypes.RegistryMode.Satellite)
         );
 
+        assertEq(script.walletNamespaceForChain(1), MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE);
+        assertEq(script.walletNamespaceForChain(137), MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE);
+        assertEq(script.walletNamespaceForChain(11_155_111), MERACrossChainDeploymentConstants.TESTNET_WALLET_NAMESPACE);
+        assertEq(script.walletNamespaceForChain(80_002), MERACrossChainDeploymentConstants.TESTNET_WALLET_NAMESPACE);
+        assertEq(script.walletNamespaceForChain(31_337), MERACrossChainDeploymentConstants.LOCAL_WALLET_NAMESPACE);
+
         vm.expectRevert(abi.encodeWithSelector(DeployMERAWalletStack.UnsupportedChain.selector, uint256(999)));
         script.registryModeForChain(999);
+        vm.expectRevert(abi.encodeWithSelector(DeployMERAWalletStack.UnsupportedChain.selector, uint256(999)));
+        script.walletNamespaceForChain(999);
     }
 
-    function _deployStack(MERAWalletLoginRegistryTypes.RegistryMode mode)
+    function _deployStack(MERAWalletLoginRegistryTypes.RegistryMode mode, bytes32 walletNamespace)
         private
         returns (StackAddresses memory stack)
     {
@@ -144,7 +175,8 @@ contract MERACrossChainDeployerTest is Test {
         stack.factory = deployer.deploy(
             MERACrossChainDeploymentConstants.WALLET_FACTORY_SALT,
             abi.encodePacked(
-                type(MERAWalletMetaProxyCloneFactory).creationCode, abi.encode(stack.implementation, stack.registry)
+                type(MERAWalletMetaProxyCloneFactory).creationCode,
+                abi.encode(stack.implementation, stack.registry, walletNamespace)
             )
         );
 
