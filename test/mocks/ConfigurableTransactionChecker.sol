@@ -45,11 +45,11 @@ contract ConfigurableTransactionChecker is IMERAWalletTransactionChecker {
         revertAfter = newRevertAfter;
     }
 
-    function checkBefore(MERAWalletTypes.Call calldata, bytes32, uint256) external override {
+    function checkBefore(MERAWalletTypes.Call calldata, bytes32, uint256) external view override {
         require(!revertBefore, BeforeCheckFailed());
     }
 
-    function checkAfter(MERAWalletTypes.Call calldata, bytes32, uint256) external override {
+    function checkAfter(MERAWalletTypes.Call calldata, bytes32, uint256) external view override {
         require(!revertAfter, AfterCheckFailed());
     }
 }

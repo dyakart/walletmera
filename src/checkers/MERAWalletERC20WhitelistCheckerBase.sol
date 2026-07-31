@@ -81,7 +81,7 @@ abstract contract MERAWalletERC20WhitelistCheckerBase is
     }
 
     /// @inheritdoc IMERAWalletTransactionChecker
-    function checkBefore(MERAWalletTypes.Call calldata call, bytes32, uint256 callId) external override {
+    function checkBefore(MERAWalletTypes.Call calldata call, bytes32, uint256 callId) external view override {
         require(call.value == 0, Erc20WhitelistNonZeroValue(callId));
 
         bytes calldata data = call.data;

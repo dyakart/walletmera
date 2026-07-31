@@ -877,7 +877,7 @@ contract MERAWalletUniswapV2OracleSlippageCheckerTest is MERAWalletSlippageFixtu
 
         vm.deal(address(this), 5 ether);
         checker.checkBefore(call, opId, 0);
-        payable(address(0xE71)).transfer(1 ether);
+        vm.deal(address(this), 4 ether);
         tokenB.mint(address(this), 1 ether);
 
         checker.checkAfter(call, opId, 0);
