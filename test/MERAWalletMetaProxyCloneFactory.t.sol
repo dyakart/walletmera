@@ -258,10 +258,10 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         address predicted = factory.predictWallet(_walletId(login));
 
         _commit(login, p);
-        vm.expectEmit(true, false, false, true);
-        emit MERAWalletMetaProxyCloneFactory.WalletDeployed(keccak256(bytes(login)), login, predicted);
         vm.expectEmit(true, true, true, true);
-        emit MERAWalletMetaProxyCloneFactory.WalletIdentityDeployed(_walletId(login), predicted, _initParamsHash(p));
+        emit MERAWalletMetaProxyCloneFactory.WalletDeployed(
+            keccak256(bytes(login)), _walletId(login), predicted, login, _initParamsHash(p)
+        );
         address deployed =
             factory.deployWallet{value: registry.priceOf(login)}(login, _walletId(login), p, secret, 0, "", "");
 
@@ -1035,8 +1035,10 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         factory.deployWallet(login, _walletId(login), p, secret, 0, "", "");
 
         _commit(login, p);
-        vm.expectEmit(true, false, false, true);
-        emit MERAWalletMetaProxyCloneFactory.WalletDeployed(keccak256(bytes(login)), login, predicted);
+        vm.expectEmit(true, true, true, true);
+        emit MERAWalletMetaProxyCloneFactory.WalletDeployed(
+            keccak256(bytes(login)), _walletId(login), predicted, login, _initParamsHash(p)
+        );
         address deployed = factory.deployWallet(login, _walletId(login), p, secret, 0, "", "");
 
         assertEq(deployed, predicted);

@@ -17,10 +17,14 @@ contract MERAWalletMetaProxyCloneFactory {
     /// @notice Versioned mainnet, testnet, or local namespace used in wallet salts.
     bytes32 public immutable WALLET_NAMESPACE;
 
-    /// @notice Emitted after a wallet clone is deployed and registered.
-    event WalletDeployed(bytes32 indexed loginHash, string login, address wallet);
-    /// @notice Emitted with the immutable identity and exact active state used for initialization.
-    event WalletIdentityDeployed(bytes32 indexed walletId, address indexed wallet, bytes32 indexed initParamsHash);
+    /// @notice Emitted after a wallet clone is deployed and registered with its immutable identity and initial state.
+    event WalletDeployed(
+        bytes32 indexed loginHash,
+        bytes32 indexed walletId,
+        address indexed wallet,
+        string login,
+        bytes32 initParamsHash
+    );
 
     /// @notice Reverts when the requested login is already registered.
     error LoginAlreadyRegistered();
@@ -81,8 +85,15 @@ contract MERAWalletMetaProxyCloneFactory {
         registration.referrerLogin = referrerLogin;
         LOGIN_REGISTRY.registerLogin{value: msg.value}(registration);
 
-        emit WalletDeployed(loginHash, login, wallet);
-        emit WalletIdentityDeployed(walletId, wallet, initParamsHash);
+        _emitWalletDeployed(loginHash, registration);
+    }
+
+    function _emitWalletDeployed(bytes32 loginHash, MERAWalletLoginRegistryTypes.RegistrationParams memory registration)
+        private
+    {
+        emit WalletDeployed(
+            loginHash, registration.walletId, registration.wallet, registration.login, registration.initParamsHash
+        );
     }
 
     /// @notice Counterfactual wallet address for an immutable wallet identity.
