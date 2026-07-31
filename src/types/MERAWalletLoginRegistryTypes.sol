@@ -11,6 +11,27 @@ library MERAWalletLoginRegistryTypes {
         Satellite
     }
 
+    /// @notice Untrusted inputs supplied by an allowed factory when registering a wallet.
+    /// @dev The registry derives the factory from `msg.sender`, payment from `msg.value`, and hashes from these fields.
+    struct RegistrationParams {
+        /// @notice Plain-text login being registered.
+        string login;
+        /// @notice Immutable wallet identity assigned on the canonical registry.
+        bytes32 walletId;
+        /// @notice Wallet address being registered.
+        address wallet;
+        /// @notice Hash of the exact controller state used to initialize the wallet.
+        bytes32 initParamsHash;
+        /// @notice Secret used by the canonical commit-reveal flow.
+        bytes32 secret;
+        /// @notice Satellite authorization deadline, also bound into canonical commitments.
+        uint256 deadline;
+        /// @notice Opaque satellite authorization payload, also bound into canonical commitments.
+        bytes authorization;
+        /// @notice Optional canonical referrer login; empty on satellite registries.
+        string referrerLogin;
+    }
+
     /// @notice Pending exchange of the logins currently owned by two registered wallets.
     struct PendingLoginMigration {
         /// @notice Wallet currently owning the old login.

@@ -30,6 +30,19 @@ contract DeployMERAWalletStack is Script {
     error FactoryRegistryMismatch(address expected, address actual);
     error FactoryWalletNamespaceMismatch(bytes32 expected, bytes32 actual);
 
+    struct DeploymentState {
+        address deployer;
+        address governance;
+        address authorizer;
+        MERAWalletLoginRegistryTypes.RegistryMode registryMode;
+        bytes32 walletNamespace;
+        MERACrossChainDeployer crossChainDeployer;
+        BaseMERAWallet implementation;
+        MERAWalletLoginRegistry registry;
+        MERAWalletMetaProxyCloneFactory factory;
+        MERALoginSignatureVerifier verifier;
+    }
+
     function run()
         external
         returns (
@@ -85,18 +98,18 @@ contract DeployMERAWalletStack is Script {
             )
         );
 
-        _validateStack(
-            deployer,
-            governance,
-            authorizer,
-            registryMode,
-            walletNamespace,
-            crossChainDeployer,
-            implementation,
-            registry,
-            factory,
-            verifier
-        );
+        DeploymentState memory deployment;
+        deployment.deployer = deployer;
+        deployment.governance = governance;
+        deployment.authorizer = authorizer;
+        deployment.registryMode = registryMode;
+        deployment.walletNamespace = walletNamespace;
+        deployment.crossChainDeployer = crossChainDeployer;
+        deployment.implementation = implementation;
+        deployment.registry = registry;
+        deployment.factory = factory;
+        deployment.verifier = verifier;
+        _validateStack(deployment);
         if (!registry.isFactory(address(factory))) {
             require(registry.owner() == deployer, RegistryOwnerMismatch(deployer, registry.owner()));
             registry.addFactory(address(factory));
@@ -118,18 +131,7 @@ contract DeployMERAWalletStack is Script {
 
         vm.stopBroadcast();
 
-        _logDeployment(
-            deployer,
-            governance,
-            authorizer,
-            registryMode,
-            walletNamespace,
-            crossChainDeployer,
-            implementation,
-            registry,
-            factory,
-            verifier
-        );
+        _logDeployment(deployment);
     }
 
     /// @notice Returns the immutable registry mode for a supported deployment chain.
@@ -194,45 +196,45 @@ contract DeployMERAWalletStack is Script {
         );
     }
 
-    function _validateStack(
-        address deployer,
-        address governance,
-        address authorizer,
-        MERAWalletLoginRegistryTypes.RegistryMode registryMode,
-        bytes32 walletNamespace,
-        MERACrossChainDeployer crossChainDeployer,
-        BaseMERAWallet implementation,
-        MERAWalletLoginRegistry registry,
-        MERAWalletMetaProxyCloneFactory factory,
-        MERALoginSignatureVerifier verifier
-    ) private view {
-        address crossChainDeployerOwner = crossChainDeployer.owner();
+    function _validateStack(DeploymentState memory deployment) private view {
+        address crossChainDeployerOwner = deployment.crossChainDeployer.owner();
         require(
-            crossChainDeployerOwner == deployer || crossChainDeployerOwner == governance,
-            CrossChainDeployerOwnerMismatch(governance, crossChainDeployerOwner)
+            crossChainDeployerOwner == deployment.deployer || crossChainDeployerOwner == deployment.governance,
+            CrossChainDeployerOwnerMismatch(deployment.governance, crossChainDeployerOwner)
         );
-        address registryOwner = registry.owner();
+        address registryOwner = deployment.registry.owner();
         require(
-            registryOwner == deployer || registryOwner == governance, RegistryOwnerMismatch(governance, registryOwner)
+            registryOwner == deployment.deployer || registryOwner == deployment.governance,
+            RegistryOwnerMismatch(deployment.governance, registryOwner)
         );
-        require(registry.REGISTRY_MODE() == registryMode, RegistryModeMismatch(registryMode, registry.REGISTRY_MODE()));
+        require(
+            deployment.registry.REGISTRY_MODE() == deployment.registryMode,
+            RegistryModeMismatch(deployment.registryMode, deployment.registry.REGISTRY_MODE())
+        );
         bytes32 expectedImplementationCodeHash = keccak256(type(BaseMERAWallet).runtimeCode);
         require(
-            address(implementation).codehash == expectedImplementationCodeHash,
-            WalletImplementationCodeHashMismatch(expectedImplementationCodeHash, address(implementation).codehash)
-        );
-        require(verifier.AUTHORIZER() == authorizer, VerifierAuthorizerMismatch(authorizer, verifier.AUTHORIZER()));
-        require(
-            factory.WALLET_IMPLEMENTATION() == address(implementation),
-            FactoryImplementationMismatch(address(implementation), factory.WALLET_IMPLEMENTATION())
+            address(deployment.implementation).codehash == expectedImplementationCodeHash,
+            WalletImplementationCodeHashMismatch(
+                expectedImplementationCodeHash, address(deployment.implementation).codehash
+            )
         );
         require(
-            address(factory.LOGIN_REGISTRY()) == address(registry),
-            FactoryRegistryMismatch(address(registry), address(factory.LOGIN_REGISTRY()))
+            deployment.verifier.AUTHORIZER() == deployment.authorizer,
+            VerifierAuthorizerMismatch(deployment.authorizer, deployment.verifier.AUTHORIZER())
         );
         require(
-            factory.WALLET_NAMESPACE() == walletNamespace,
-            FactoryWalletNamespaceMismatch(walletNamespace, factory.WALLET_NAMESPACE())
+            deployment.factory.WALLET_IMPLEMENTATION() == address(deployment.implementation),
+            FactoryImplementationMismatch(
+                address(deployment.implementation), deployment.factory.WALLET_IMPLEMENTATION()
+            )
+        );
+        require(
+            address(deployment.factory.LOGIN_REGISTRY()) == address(deployment.registry),
+            FactoryRegistryMismatch(address(deployment.registry), address(deployment.factory.LOGIN_REGISTRY()))
+        );
+        require(
+            deployment.factory.WALLET_NAMESPACE() == deployment.walletNamespace,
+            FactoryWalletNamespaceMismatch(deployment.walletNamespace, deployment.factory.WALLET_NAMESPACE())
         );
     }
 
@@ -248,27 +250,16 @@ contract DeployMERAWalletStack is Script {
         require(registry.owner() == expectedOwner, RegistryOwnerMismatch(expectedOwner, registry.owner()));
     }
 
-    function _logDeployment(
-        address deployer,
-        address governance,
-        address authorizer,
-        MERAWalletLoginRegistryTypes.RegistryMode registryMode,
-        bytes32 walletNamespace,
-        MERACrossChainDeployer crossChainDeployer,
-        BaseMERAWallet implementation,
-        MERAWalletLoginRegistry registry,
-        MERAWalletMetaProxyCloneFactory factory,
-        MERALoginSignatureVerifier verifier
-    ) private pure {
-        console2.log("Deployer:", deployer);
-        console2.log("Governance:", governance);
-        console2.log("Login authorizer:", authorizer);
-        console2.log("Registry mode:", uint256(registryMode));
-        console2.logBytes32(walletNamespace);
-        console2.log("MERACrossChainDeployer:", address(crossChainDeployer));
-        console2.log("BaseMERAWallet implementation:", address(implementation));
-        console2.log("MERAWalletLoginRegistry:", address(registry));
-        console2.log("MERAWalletMetaProxyCloneFactory:", address(factory));
-        console2.log("MERALoginSignatureVerifier:", address(verifier));
+    function _logDeployment(DeploymentState memory deployment) private pure {
+        console2.log("Deployer:", deployment.deployer);
+        console2.log("Governance:", deployment.governance);
+        console2.log("Login authorizer:", deployment.authorizer);
+        console2.log("Registry mode:", uint256(deployment.registryMode));
+        console2.logBytes32(deployment.walletNamespace);
+        console2.log("MERACrossChainDeployer:", address(deployment.crossChainDeployer));
+        console2.log("BaseMERAWallet implementation:", address(deployment.implementation));
+        console2.log("MERAWalletLoginRegistry:", address(deployment.registry));
+        console2.log("MERAWalletMetaProxyCloneFactory:", address(deployment.factory));
+        console2.log("MERALoginSignatureVerifier:", address(deployment.verifier));
     }
 }

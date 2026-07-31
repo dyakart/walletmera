@@ -91,6 +91,21 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         return keccak256(abi.encode(p));
     }
 
+    function _registrationParams(string memory login, bytes32 walletId, address wallet, bytes32 initParamsHash)
+        internal
+        view
+        returns (MERAWalletLoginRegistryTypes.RegistrationParams memory registration)
+    {
+        registration.login = login;
+        registration.walletId = walletId;
+        registration.wallet = wallet;
+        registration.initParamsHash = initParamsHash;
+        registration.secret = secret;
+        registration.deadline = 0;
+        registration.authorization = "";
+        registration.referrerLogin = "";
+    }
+
     function _commit(string memory login, MERAWalletTypes.WalletInitParams memory p)
         internal
         returns (address predicted)
@@ -672,7 +687,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         uint256 price = registry.priceOf("mallory");
         vm.expectRevert(IMERAWalletLoginRegistryErrors.UnauthorizedFactory.selector);
         registry.registerLogin{value: price}(
-            "mallory", _walletId("mallory"), address(0x123456), bytes32(0), secret, 0, "", ""
+            _registrationParams("mallory", _walletId("mallory"), address(0x123456), bytes32(0))
         );
     }
 
@@ -1380,7 +1395,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         // Instead, deploy via factory with a manipulated params — actually easier to call directly on registry
         vm.prank(address(factory));
         vm.expectRevert(IMERAWalletLoginRegistryErrors.InvalidAddress.selector);
-        registry.registerLogin("alice", _walletId("alice"), address(0), bytes32(0), secret, 0, "", "");
+        registry.registerLogin(_registrationParams("alice", _walletId("alice"), address(0), bytes32(0)));
     }
 
     function test_registry_registerLogin_same_login_twice_reverts() public {
@@ -1393,7 +1408,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         address wallet2 = address(0x1234);
         vm.prank(address(factory));
         vm.expectRevert(IMERAWalletLoginRegistryErrors.LoginAlreadyRegistered.selector);
-        registry.registerLogin(login, _walletId(login), wallet2, bytes32(0), secret, 0, "", "");
+        registry.registerLogin(_registrationParams(login, _walletId(login), wallet2, bytes32(0)));
     }
 
     function test_registry_registerLogin_wallet_already_has_login_reverts() public {
@@ -1404,7 +1419,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         // Try to register a new login for same wallet
         vm.prank(address(factory));
         vm.expectRevert(IMERAWalletLoginRegistryErrors.AddressAlreadyHasLogin.selector);
-        registry.registerLogin("bob", _walletId("bob"), deployed, bytes32(0), secret, 0, "", "");
+        registry.registerLogin(_registrationParams("bob", _walletId("bob"), deployed, bytes32(0)));
     }
 
     function test_registry_registerLogin_long_login_nonzero_value_reverts() public {
@@ -1414,7 +1429,7 @@ contract MERAWalletMetaProxyCloneFactoryTest is Test {
         vm.prank(address(factory));
         vm.expectRevert(IMERAWalletLoginRegistryErrors.InvalidPayment.selector);
         registry.registerLogin{value: 1 wei}(
-            longLogin, _walletId(longLogin), address(0x9999), bytes32(0), secret, 0, "", ""
+            _registrationParams(longLogin, _walletId(longLogin), address(0x9999), bytes32(0))
         );
     }
 

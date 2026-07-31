@@ -131,88 +131,100 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function registerLogin(
-        string calldata login,
-        bytes32 walletId,
-        address wallet,
-        bytes32 initParamsHash,
-        bytes32 secret,
-        uint256 deadline,
-        bytes calldata authorization,
-        string calldata referrerLogin
-    ) external payable override onlyFactory {
-        require(wallet != address(0), InvalidAddress());
-        bytes32 loginHash = _requireLoginHash(login);
+    function registerLogin(MERAWalletLoginRegistryTypes.RegistrationParams calldata registration)
+        external
+        payable
+        override
+        onlyFactory
+    {
+        require(registration.wallet != address(0), InvalidAddress());
+        bytes32 loginHash = _requireLoginHash(registration.login);
         bool isSatellite = REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite;
-        require(walletId != bytes32(0), InvalidWalletId());
+        require(registration.walletId != bytes32(0), InvalidWalletId());
         if (!isSatellite) {
-            require(walletId == loginHash, InvalidWalletId());
+            require(registration.walletId == loginHash, InvalidWalletId());
         }
         bytes32 referrerLoginHash = bytes32(0);
         if (isSatellite) {
-            require(bytes(referrerLogin).length == 0, SatelliteReferralNotAllowed());
+            require(bytes(registration.referrerLogin).length == 0, SatelliteReferralNotAllowed());
         } else {
-            referrerLoginHash = _requireReferrerLoginHash(loginHash, referrerLogin);
+            referrerLoginHash = _requireReferrerLoginHash(loginHash, registration.referrerLogin);
         }
         require(walletByLoginHash[loginHash] == address(0), LoginAlreadyRegistered());
-        require(loginHashByWallet[wallet] == bytes32(0), AddressAlreadyHasLogin());
-        require(walletByWalletId[walletId] == address(0) && walletIdByWallet[wallet] == bytes32(0), InvalidWalletId());
+        require(loginHashByWallet[registration.wallet] == bytes32(0), AddressAlreadyHasLogin());
+        require(
+            walletByWalletId[registration.walletId] == address(0)
+                && walletIdByWallet[registration.wallet] == bytes32(0),
+            InvalidWalletId()
+        );
 
-        uint256 loginLength = bytes(login).length;
         if (isSatellite) {
-            require(msg.value == 0, InvalidPayment());
-            address verifier = authorizationVerifier;
-            require(verifier != address(0), AuthorizationVerifierNotSet());
-            MERAWalletLoginRegistryTypes.RegistrationValidationParams memory registrationValidation =
-                MERAWalletLoginRegistryTypes.RegistrationValidationParams({
-                    registry: address(this),
-                    factory: msg.sender,
-                    loginHash: loginHash,
-                    walletId: walletId,
-                    login: login,
-                    wallet: wallet,
-                    initParamsHash: initParamsHash,
-                    deadline: deadline,
-                    authorization: authorization
-                });
-            // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
-            IMERALoginAuthorizationVerifier(verifier).validateRegistration(registrationValidation);
+            _validateSatelliteRegistration(registration, loginHash);
         } else {
-            require(msg.value == _priceOfValidatedLength(loginLength), InvalidPayment());
-            bytes32 commitment = _makeCommitment(
-                login,
-                walletId,
-                wallet,
-                msg.sender,
-                initParamsHash,
-                secret,
-                deadline,
-                keccak256(authorization),
-                referrerLoginHash
-            );
-            uint256 committedAtPlusOne = commitments[commitment];
-            require(committedAtPlusOne != 0, CommitmentNotFound());
-            uint256 committedAt = committedAtPlusOne - 1;
-            require(
-                block.timestamp >= committedAt + MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE, CommitmentTooNew()
-            );
-            require(
-                block.timestamp <= committedAt + MERAWalletLoginRegistryConstants.MAX_COMMITMENT_AGE,
-                CommitmentExpired()
-            );
-            delete commitments[commitment];
+            _consumeCanonicalRegistrationCommitment(registration, referrerLoginHash);
         }
 
-        walletByLoginHash[loginHash] = wallet;
-        loginHashByWallet[wallet] = loginHash;
-        walletByWalletId[walletId] = wallet;
-        walletIdByWallet[wallet] = walletId;
+        walletByLoginHash[loginHash] = registration.wallet;
+        loginHashByWallet[registration.wallet] = loginHash;
+        walletByWalletId[registration.walletId] = registration.wallet;
+        walletIdByWallet[registration.wallet] = registration.walletId;
         referrerLoginHashByLoginHash[loginHash] = referrerLoginHash;
-        _loginByHash[loginHash] = login;
+        _loginByHash[loginHash] = registration.login;
 
-        emit LoginRegistered(loginHash, login, wallet, msg.sender);
-        emit WalletIdentityRegistered(walletId, wallet);
-        emit LoginReferralRecorded(loginHash, referrerLoginHash, referrerLogin);
+        emit LoginRegistered(loginHash, registration.login, registration.wallet, msg.sender);
+        emit WalletIdentityRegistered(registration.walletId, registration.wallet);
+        emit LoginReferralRecorded(loginHash, referrerLoginHash, registration.referrerLogin);
+    }
+
+    function _validateSatelliteRegistration(
+        MERAWalletLoginRegistryTypes.RegistrationParams calldata registration,
+        bytes32 loginHash
+    ) private view {
+        require(msg.value == 0, InvalidPayment());
+        address verifier = authorizationVerifier;
+        require(verifier != address(0), AuthorizationVerifierNotSet());
+        MERAWalletLoginRegistryTypes.RegistrationValidationParams memory registrationValidation =
+            MERAWalletLoginRegistryTypes.RegistrationValidationParams({
+                registry: address(this),
+                factory: msg.sender,
+                loginHash: loginHash,
+                walletId: registration.walletId,
+                login: registration.login,
+                wallet: registration.wallet,
+                initParamsHash: registration.initParamsHash,
+                deadline: registration.deadline,
+                authorization: registration.authorization
+            });
+        // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
+        IMERALoginAuthorizationVerifier(verifier).validateRegistration(registrationValidation);
+    }
+
+    function _consumeCanonicalRegistrationCommitment(
+        MERAWalletLoginRegistryTypes.RegistrationParams calldata registration,
+        bytes32 referrerLoginHash
+    ) private {
+        require(msg.value == _priceOfValidatedLength(bytes(registration.login).length), InvalidPayment());
+        bytes32 commitment = _makeCommitment(
+            registration.login,
+            registration.walletId,
+            registration.wallet,
+            msg.sender,
+            registration.initParamsHash,
+            registration.secret,
+            registration.deadline,
+            keccak256(registration.authorization),
+            referrerLoginHash
+        );
+        uint256 committedAtPlusOne = commitments[commitment];
+        require(committedAtPlusOne != 0, CommitmentNotFound());
+        uint256 committedAt = committedAtPlusOne - 1;
+        require(
+            block.timestamp >= committedAt + MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE, CommitmentTooNew()
+        );
+        require(
+            block.timestamp <= committedAt + MERAWalletLoginRegistryConstants.MAX_COMMITMENT_AGE, CommitmentExpired()
+        );
+        delete commitments[commitment];
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
@@ -250,23 +262,26 @@ contract MERAWalletLoginRegistry is
         );
         _requireMatchingGuardianAndEmergency(previousWallet, newWallet);
 
-        address verifier = authorizationVerifier;
-        require(verifier != address(0), AuthorizationVerifierNotSet());
-        uint256 nonce = satelliteMigrationNonce;
-        MERAWalletLoginRegistryTypes.MigrationValidationParams memory migrationValidation =
-            MERAWalletLoginRegistryTypes.MigrationValidationParams({
-                registry: address(this),
-                oldLoginHash: oldLoginHash,
-                newLoginHash: newLoginHash,
-                previousWallet: previousWallet,
-                newWallet: newWallet,
-                nonce: nonce,
-                deadline: deadline,
-                authorization: authorization
-            });
-        // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
-        IMERALoginAuthorizationVerifier(verifier).validateMigration(migrationValidation);
-        satelliteMigrationNonce = nonce + 1;
+        uint256 nonce;
+        {
+            address verifier = authorizationVerifier;
+            require(verifier != address(0), AuthorizationVerifierNotSet());
+            nonce = satelliteMigrationNonce;
+            MERAWalletLoginRegistryTypes.MigrationValidationParams memory migrationValidation =
+                MERAWalletLoginRegistryTypes.MigrationValidationParams({
+                    registry: address(this),
+                    oldLoginHash: oldLoginHash,
+                    newLoginHash: newLoginHash,
+                    previousWallet: previousWallet,
+                    newWallet: newWallet,
+                    nonce: nonce,
+                    deadline: deadline,
+                    authorization: authorization
+                });
+            // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
+            IMERALoginAuthorizationVerifier(verifier).validateMigration(migrationValidation);
+            satelliteMigrationNonce = nonce + 1;
+        }
 
         emit CanonicalLoginMigrationApplied(oldLoginHash, newLoginHash, previousWallet, newWallet, nonce);
         emit LoginMigrationConfirmed(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);

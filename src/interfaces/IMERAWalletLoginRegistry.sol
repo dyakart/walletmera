@@ -54,17 +54,8 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
     /// @notice Stores a login registration commitment.
     function commit(bytes32 commitment) external;
 
-    /// @notice Registers `login` after canonical commitment/payment or satellite authorization validation.
-    function registerLogin(
-        string calldata login,
-        bytes32 walletId,
-        address wallet,
-        bytes32 initParamsHash,
-        bytes32 secret,
-        uint256 deadline,
-        bytes calldata authorization,
-        string calldata referrerLogin
-    ) external payable;
+    /// @notice Registers a wallet after canonical commitment/payment or satellite authorization validation.
+    function registerLogin(MERAWalletLoginRegistryTypes.RegistrationParams calldata registration) external payable;
 
     /// @notice Sets the caller wallet's referrer login once.
     function setReferrer(string calldata referrerLogin) external;

@@ -559,9 +559,15 @@ contract MERAWalletLoginMerkleGuardianTest is Test {
             )
         );
         skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf(login)}(
-            login, walletId, wallet_, initParamsHash, secret, 0, "", ""
-        );
+        MERAWalletLoginRegistryTypes.RegistrationParams memory registration;
+        registration.login = login;
+        registration.walletId = walletId;
+        registration.wallet = wallet_;
+        registration.initParamsHash = initParamsHash;
+        registration.secret = secret;
+        registration.authorization = "";
+        registration.referrerLogin = "";
+        registry.registerLogin{value: registry.priceOf(login)}(registration);
     }
 
     function _loginHash(string memory login) internal pure returns (bytes32) {

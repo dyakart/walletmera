@@ -3,6 +3,7 @@ pragma solidity 0.8.34;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {MERAWalletTypes} from "./types/MERAWalletTypes.sol";
+import {MERAWalletLoginRegistryTypes} from "./types/MERAWalletLoginRegistryTypes.sol";
 import {BaseMERAWallet} from "./BaseMERAWallet.sol";
 import {IMERAWalletLoginRegistry} from "./interfaces/IMERAWalletLoginRegistry.sol";
 
@@ -69,9 +70,17 @@ contract MERAWalletMetaProxyCloneFactory {
         wallet = Clones.cloneDeterministic(WALLET_IMPLEMENTATION, walletSalt(walletId));
         BaseMERAWallet(payable(wallet)).initialize(params);
 
-        LOGIN_REGISTRY.registerLogin{value: msg.value}(
-            login, walletId, wallet, initParamsHash, secret, deadline, authorization, referrerLogin
-        );
+        MERAWalletLoginRegistryTypes.RegistrationParams memory registration;
+        registration.login = login;
+        registration.walletId = walletId;
+        registration.wallet = wallet;
+        registration.initParamsHash = initParamsHash;
+        registration.secret = secret;
+        registration.deadline = deadline;
+        registration.authorization = authorization;
+        registration.referrerLogin = referrerLogin;
+        LOGIN_REGISTRY.registerLogin{value: msg.value}(registration);
+
         emit WalletDeployed(loginHash, login, wallet);
         emit WalletIdentityDeployed(walletId, wallet, initParamsHash);
     }

@@ -3421,9 +3421,17 @@ contract BaseMERAWalletTest is Test {
             )
         );
         skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf("old")}(
-            "old", oldWalletId, address(wallet), oldInitParamsHash, oldSecret, 0, "", ""
-        );
+        {
+            MERAWalletLoginRegistryTypes.RegistrationParams memory oldRegistration;
+            oldRegistration.login = "old";
+            oldRegistration.walletId = oldWalletId;
+            oldRegistration.wallet = address(wallet);
+            oldRegistration.initParamsHash = oldInitParamsHash;
+            oldRegistration.secret = oldSecret;
+            oldRegistration.authorization = "";
+            oldRegistration.referrerLogin = "";
+            registry.registerLogin{value: registry.priceOf("old")}(oldRegistration);
+        }
         bytes32 newSecret = keccak256("new");
         bytes32 newWalletId = keccak256(bytes("new"));
         bytes32 newInitParamsHash = keccak256("new init");
@@ -3441,9 +3449,17 @@ contract BaseMERAWalletTest is Test {
             )
         );
         skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf("new")}(
-            "new", newWalletId, address(newWallet), newInitParamsHash, newSecret, 0, "", ""
-        );
+        {
+            MERAWalletLoginRegistryTypes.RegistrationParams memory newRegistration;
+            newRegistration.login = "new";
+            newRegistration.walletId = newWalletId;
+            newRegistration.wallet = address(newWallet);
+            newRegistration.initParamsHash = newInitParamsHash;
+            newRegistration.secret = newSecret;
+            newRegistration.authorization = "";
+            newRegistration.referrerLogin = "";
+            registry.registerLogin{value: registry.priceOf("new")}(newRegistration);
+        }
 
         vm.startPrank(emergency);
         _executeEmergencyWalletSelfCallTimelockedOn(
