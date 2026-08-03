@@ -18,10 +18,10 @@ contract MERAWalletLoginRegistry is
     IMERAWalletLoginRegistryErrors,
     Ownable
 {
-    /// @notice Optional authorization verifier used for short-login registrations.
+    /// @notice Authorization verifier used by satellite registrations and migration replays.
     address public override authorizationVerifier;
-    /// @notice Whether short paid logins require verifier authorization.
-    bool public immutable override REQUIRE_SHORT_LOGIN_AUTHORIZATION;
+    /// @notice Operating mode selected permanently at deployment.
+    MERAWalletLoginRegistryTypes.RegistryMode public immutable override REGISTRY_MODE;
     /// @notice Whether a factory address may register logins.
     mapping(address factory => bool allowed) public override isFactory;
     /// @notice Stored registration commitments as `committedAt + 1`; zero means absent.
@@ -30,6 +30,10 @@ contract MERAWalletLoginRegistry is
     mapping(bytes32 loginHash => address wallet) public override walletByLoginHash;
     /// @notice Login hash registered for each wallet.
     mapping(address wallet => bytes32 loginHash) public override loginHashByWallet;
+    /// @notice Wallet registered for each immutable wallet identity.
+    mapping(bytes32 walletId => address wallet) public override walletByWalletId;
+    /// @notice Immutable identity assigned to each wallet.
+    mapping(address wallet => bytes32 walletId) public override walletIdByWallet;
     /// @notice Referrer login hash recorded for each login hash.
     mapping(bytes32 loginHash => bytes32 referrerLoginHash) public override referrerLoginHashByLoginHash;
     /// @notice Pending migration data by old login hash.
@@ -38,6 +42,8 @@ contract MERAWalletLoginRegistry is
         override pendingLoginMigrationByOldLoginHash;
     /// @notice Expiry timestamp for each pending migration; zero means absent.
     mapping(bytes32 oldLoginHash => uint256 expiresAt) public override pendingLoginMigrationExpiresAtByOldLoginHash;
+    /// @notice Next registry-wide authorization nonce for canonical migration replays on a satellite registry.
+    uint256 public override satelliteMigrationNonce;
     mapping(bytes32 loginHash => string login) private _loginByHash;
 
     /// @notice Base paid-login price.
@@ -50,8 +56,18 @@ contract MERAWalletLoginRegistry is
         _;
     }
 
-    constructor(address initialOwner, bool requireShortLoginAuthorization) Ownable(initialOwner) {
-        REQUIRE_SHORT_LOGIN_AUTHORIZATION = requireShortLoginAuthorization;
+    modifier onlyCanonical() {
+        _requireCanonical();
+        _;
+    }
+
+    modifier onlySatellite() {
+        _requireSatellite();
+        _;
+    }
+
+    constructor(address initialOwner, MERAWalletLoginRegistryTypes.RegistryMode registryMode) Ownable(initialOwner) {
+        REGISTRY_MODE = registryMode;
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
@@ -72,7 +88,7 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function setBaseLoginPrice(uint256 newBaseLoginPrice) external override onlyOwner {
+    function setBaseLoginPrice(uint256 newBaseLoginPrice) external override onlyOwner onlyCanonical {
         require(
             newBaseLoginPrice >= MERAWalletLoginRegistryConstants.MIN_BASE_LOGIN_PRICE
                 && newBaseLoginPrice <= MERAWalletLoginRegistryConstants.MAX_BASE_LOGIN_PRICE,
@@ -84,7 +100,7 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function setLoginPriceMultiplier(uint256 newMultiplier) external override onlyOwner {
+    function setLoginPriceMultiplier(uint256 newMultiplier) external override onlyOwner onlyCanonical {
         require(
             newMultiplier >= MERAWalletLoginRegistryConstants.MIN_LOGIN_PRICE_MULTIPLIER
                 && newMultiplier <= MERAWalletLoginRegistryConstants.MAX_LOGIN_PRICE_MULTIPLIER,
@@ -108,74 +124,111 @@ contract MERAWalletLoginRegistry is
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function commit(bytes32 commitment) external override {
+    function commit(bytes32 commitment) external override onlyCanonical {
         require(commitments[commitment] == 0, CommitmentAlreadyExists());
         commitments[commitment] = block.timestamp + 1;
         emit LoginCommitmentMade(commitment, block.timestamp);
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function registerLogin(
-        string calldata login,
-        address wallet,
-        bytes32 secret,
-        uint256 deadline,
-        bytes calldata authorization,
-        string calldata referrerLogin
-    ) external payable override onlyFactory {
-        require(wallet != address(0), InvalidAddress());
-        bytes32 loginHash = _requireLoginHash(login);
-        bytes32 referrerLoginHash = _requireReferrerLoginHash(loginHash, referrerLogin);
-        require(walletByLoginHash[loginHash] == address(0), LoginAlreadyRegistered());
-        require(loginHashByWallet[wallet] == bytes32(0), AddressAlreadyHasLogin());
-
-        uint256 loginLength = bytes(login).length;
-        if (loginLength > MERAWalletLoginRegistryConstants.PAID_LOGIN_MAX_LENGTH) {
-            require(msg.value == 0, InvalidPayment());
-        } else if (REQUIRE_SHORT_LOGIN_AUTHORIZATION) {
-            require(msg.value == 0, InvalidPayment());
-            address verifier = authorizationVerifier;
-            require(verifier != address(0), AuthorizationVerifierNotSet());
-            MERAWalletLoginRegistryTypes.RegistrationValidationParams memory registrationValidation =
-                MERAWalletLoginRegistryTypes.RegistrationValidationParams({
-                    registry: address(this),
-                    factory: msg.sender,
-                    loginHash: loginHash,
-                    login: login,
-                    wallet: wallet,
-                    deadline: deadline,
-                    authorization: authorization
-                });
-            IMERALoginAuthorizationVerifier(verifier).validateRegistration(registrationValidation);
+    function registerLogin(MERAWalletLoginRegistryTypes.RegistrationParams calldata registration)
+        external
+        payable
+        override
+        onlyFactory
+    {
+        require(registration.wallet != address(0), InvalidAddress());
+        bytes32 loginHash = _requireLoginHash(registration.login);
+        bool isSatellite = REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite;
+        require(registration.walletId != bytes32(0), InvalidWalletId());
+        if (!isSatellite) {
+            require(registration.walletId == loginHash, InvalidWalletId());
+        }
+        bytes32 referrerLoginHash = bytes32(0);
+        if (isSatellite) {
+            require(bytes(registration.referrerLogin).length == 0, SatelliteReferralNotAllowed());
         } else {
-            require(msg.value == _priceOfValidatedLength(loginLength), InvalidPayment());
-            bytes32 commitment = _makeCommitment(
-                login, wallet, msg.sender, secret, deadline, keccak256(authorization), referrerLoginHash
-            );
-            uint256 committedAtPlusOne = commitments[commitment];
-            require(committedAtPlusOne != 0, CommitmentNotFound());
-            uint256 committedAt = committedAtPlusOne - 1;
-            require(
-                block.timestamp >= committedAt + MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE, CommitmentTooNew()
-            );
-            require(
-                block.timestamp <= committedAt + MERAWalletLoginRegistryConstants.MAX_COMMITMENT_AGE,
-                CommitmentExpired()
-            );
-            delete commitments[commitment];
+            referrerLoginHash = _requireReferrerLoginHash(loginHash, registration.referrerLogin);
+        }
+        require(walletByLoginHash[loginHash] == address(0), LoginAlreadyRegistered());
+        require(loginHashByWallet[registration.wallet] == bytes32(0), AddressAlreadyHasLogin());
+        require(
+            walletByWalletId[registration.walletId] == address(0)
+                && walletIdByWallet[registration.wallet] == bytes32(0),
+            InvalidWalletId()
+        );
+
+        if (isSatellite) {
+            _validateSatelliteRegistration(registration, loginHash);
+        } else {
+            _consumeCanonicalRegistrationCommitment(registration, referrerLoginHash);
         }
 
-        walletByLoginHash[loginHash] = wallet;
-        loginHashByWallet[wallet] = loginHash;
+        walletByLoginHash[loginHash] = registration.wallet;
+        loginHashByWallet[registration.wallet] = loginHash;
+        walletByWalletId[registration.walletId] = registration.wallet;
+        walletIdByWallet[registration.wallet] = registration.walletId;
         referrerLoginHashByLoginHash[loginHash] = referrerLoginHash;
-        _loginByHash[loginHash] = login;
+        _loginByHash[loginHash] = registration.login;
 
-        emit LoginRegistered(loginHash, login, wallet, msg.sender);
-        emit LoginReferralRecorded(loginHash, referrerLoginHash, referrerLogin);
+        emit LoginRegistered(loginHash, registration.login, registration.wallet, msg.sender);
+        emit WalletIdentityRegistered(registration.walletId, registration.wallet);
+        emit LoginReferralRecorded(loginHash, referrerLoginHash, registration.referrerLogin);
+    }
+
+    function _validateSatelliteRegistration(
+        MERAWalletLoginRegistryTypes.RegistrationParams calldata registration,
+        bytes32 loginHash
+    ) private view {
+        require(msg.value == 0, InvalidPayment());
+        address verifier = authorizationVerifier;
+        require(verifier != address(0), AuthorizationVerifierNotSet());
+        MERAWalletLoginRegistryTypes.RegistrationValidationParams memory registrationValidation =
+            MERAWalletLoginRegistryTypes.RegistrationValidationParams({
+                registry: address(this),
+                factory: msg.sender,
+                loginHash: loginHash,
+                walletId: registration.walletId,
+                login: registration.login,
+                wallet: registration.wallet,
+                initParamsHash: registration.initParamsHash,
+                deadline: registration.deadline,
+                authorization: registration.authorization
+            });
+        // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
+        IMERALoginAuthorizationVerifier(verifier).validateRegistration(registrationValidation);
+    }
+
+    function _consumeCanonicalRegistrationCommitment(
+        MERAWalletLoginRegistryTypes.RegistrationParams calldata registration,
+        bytes32 referrerLoginHash
+    ) private {
+        require(msg.value == _priceOfValidatedLength(bytes(registration.login).length), InvalidPayment());
+        bytes32 commitment = _makeCommitment(
+            registration.login,
+            registration.walletId,
+            registration.wallet,
+            msg.sender,
+            registration.initParamsHash,
+            registration.secret,
+            registration.deadline,
+            keccak256(registration.authorization),
+            referrerLoginHash
+        );
+        uint256 committedAtPlusOne = commitments[commitment];
+        require(committedAtPlusOne != 0, CommitmentNotFound());
+        uint256 committedAt = committedAtPlusOne - 1;
+        require(
+            block.timestamp >= committedAt + MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE, CommitmentTooNew()
+        );
+        require(
+            block.timestamp <= committedAt + MERAWalletLoginRegistryConstants.MAX_COMMITMENT_AGE, CommitmentExpired()
+        );
+        delete commitments[commitment];
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
-    function setReferrer(string calldata referrerLogin) external override {
+    function setReferrer(string calldata referrerLogin) external override onlyCanonical {
         bytes32 loginHash = loginHashByWallet[msg.sender];
         require(loginHash != bytes32(0), LoginNotOwned());
         require(referrerLoginHashByLoginHash[loginHash] == bytes32(0), ReferrerAlreadySet());
@@ -189,10 +242,57 @@ contract MERAWalletLoginRegistry is
         emit LoginReferralRecorded(loginHash, referrerLoginHash, referrerLogin);
     }
 
-    /// @notice Requests migration of `oldLogin` to `newLogin` and `newWallet`.
+    /// @inheritdoc IMERAWalletLoginRegistry
+    function applyAuthorizedLoginMigration(
+        string calldata oldLogin,
+        string calldata newLogin,
+        uint256 deadline,
+        bytes calldata authorization
+    ) external override onlySatellite {
+        bytes32 oldLoginHash = _requireLoginHash(oldLogin);
+        bytes32 newLoginHash = _requireLoginHash(newLogin);
+        require(oldLoginHash != newLoginHash, LoginAlreadyRegistered());
+
+        address previousWallet = walletByLoginHash[oldLoginHash];
+        address newWallet = walletByLoginHash[newLoginHash];
+        require(
+            previousWallet != address(0) && newWallet != address(0) && previousWallet != newWallet
+                && loginHashByWallet[previousWallet] == oldLoginHash && loginHashByWallet[newWallet] == newLoginHash,
+            LoginMigrationStale()
+        );
+        _requireMatchingGuardianAndEmergency(previousWallet, newWallet);
+
+        uint256 nonce;
+        {
+            address verifier = authorizationVerifier;
+            require(verifier != address(0), AuthorizationVerifierNotSet());
+            nonce = satelliteMigrationNonce;
+            MERAWalletLoginRegistryTypes.MigrationValidationParams memory migrationValidation =
+                MERAWalletLoginRegistryTypes.MigrationValidationParams({
+                    registry: address(this),
+                    oldLoginHash: oldLoginHash,
+                    newLoginHash: newLoginHash,
+                    previousWallet: previousWallet,
+                    newWallet: newWallet,
+                    nonce: nonce,
+                    deadline: deadline,
+                    authorization: authorization
+                });
+            // The view hook compiles to STATICCALL, so verifier code cannot mutate registry state or reenter writes.
+            IMERALoginAuthorizationVerifier(verifier).validateMigration(migrationValidation);
+            satelliteMigrationNonce = nonce + 1;
+        }
+
+        emit CanonicalLoginMigrationApplied(oldLoginHash, newLoginHash, previousWallet, newWallet, nonce);
+        emit LoginMigrationConfirmed(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
+        _swapLoginOwnership(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
+    }
+
+    /// @notice Requests an exchange of the logins currently owned by the caller and `newWallet`.
     function requestLoginMigration(string calldata oldLogin, string calldata newLogin, address newWallet)
         external
         override
+        onlyCanonical
     {
         require(newWallet != address(0), InvalidAddress());
         require(newWallet != msg.sender, SameWallet());
@@ -222,8 +322,8 @@ contract MERAWalletLoginRegistry is
         emit LoginMigrationRequested(oldLoginHash, oldLogin, newLoginHash, newLogin, msg.sender, newWallet);
     }
 
-    /// @notice Cancels a pending login migration as the requesting wallet.
-    function cancelLoginMigration(string calldata oldLogin) external override {
+    /// @notice Cancels a pending login exchange as the requesting wallet.
+    function cancelLoginMigration(string calldata oldLogin) external override onlyCanonical {
         bytes32 oldLoginHash = _requireLoginHash(oldLogin);
         MERAWalletLoginRegistryTypes.PendingLoginMigration memory migration =
             pendingLoginMigrationByOldLoginHash[oldLoginHash];
@@ -237,8 +337,8 @@ contract MERAWalletLoginRegistry is
         );
     }
 
-    /// @notice Confirms a pending login migration as the new wallet.
-    function confirmLoginMigration(string calldata oldLogin) external override {
+    /// @notice Confirms a pending login exchange as the other wallet.
+    function confirmLoginMigration(string calldata oldLogin) external override onlyCanonical {
         bytes32 oldLoginHash = _requireLoginHash(oldLogin);
         MERAWalletLoginRegistryTypes.PendingLoginMigration memory migration =
             pendingLoginMigrationByOldLoginHash[oldLoginHash];
@@ -261,20 +361,18 @@ contract MERAWalletLoginRegistry is
 
         string memory newLogin = _loginByHash[newLoginHash];
 
-        walletByLoginHash[oldLoginHash] = newWallet;
-        walletByLoginHash[newLoginHash] = previousWallet;
-        loginHashByWallet[previousWallet] = newLoginHash;
-        loginHashByWallet[newWallet] = oldLoginHash;
         _clearPendingLoginMigration(oldLoginHash);
 
         emit LoginMigrationConfirmed(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
-        emit LoginTransferred(oldLoginHash, oldLogin, previousWallet, newWallet);
-        emit LoginTransferred(newLoginHash, newLogin, newWallet, previousWallet);
+        _swapLoginOwnership(oldLoginHash, oldLogin, newLoginHash, newLogin, previousWallet, newWallet);
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
     function priceOf(string calldata login) external view override returns (uint256) {
         _requireLoginHash(login);
+        if (REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite) {
+            return 0;
+        }
         return _priceOfValidatedLength(bytes(login).length);
     }
 
@@ -294,6 +392,14 @@ contract MERAWalletLoginRegistry is
     /// @inheritdoc IMERAWalletLoginRegistry
     function loginByHash(bytes32 loginHash) external view override returns (string memory) {
         return _loginByHash[loginHash];
+    }
+
+    /// @inheritdoc IMERAWalletLoginRegistry
+    function walletIdOf(string calldata login) external view override returns (bytes32) {
+        if (bytes(login).length == 0) {
+            return bytes32(0);
+        }
+        return walletIdByWallet[walletByLoginHash[_loginHash(login)]];
     }
 
     /// @inheritdoc IMERAWalletLoginRegistry
@@ -320,15 +426,25 @@ contract MERAWalletLoginRegistry is
     /// @inheritdoc IMERAWalletLoginRegistry
     function makeCommitment(
         string calldata login,
+        bytes32 walletId,
         address wallet,
         address factory,
+        bytes32 initParamsHash,
         bytes32 secret,
         uint256 deadline,
         bytes32 authorizationHash,
         string calldata referrerLogin
     ) external pure override returns (bytes32) {
         return _makeCommitment(
-            login, wallet, factory, secret, deadline, authorizationHash, _optionalLoginHash(referrerLogin)
+            login,
+            walletId,
+            wallet,
+            factory,
+            initParamsHash,
+            secret,
+            deadline,
+            authorizationHash,
+            _optionalLoginHash(referrerLogin)
         );
     }
 
@@ -357,6 +473,14 @@ contract MERAWalletLoginRegistry is
         require(isFactory[msg.sender], UnauthorizedFactory());
     }
 
+    function _requireCanonical() private view {
+        require(REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Canonical, CanonicalRegistryOnly());
+    }
+
+    function _requireSatellite() private view {
+        require(REGISTRY_MODE == MERAWalletLoginRegistryTypes.RegistryMode.Satellite, SatelliteRegistryOnly());
+    }
+
     function _isLoginMigrationExpired(bytes32 oldLoginHash) private view returns (bool) {
         uint256 expiresAt = pendingLoginMigrationExpiresAtByOldLoginHash[oldLoginHash];
         return expiresAt != 0 && block.timestamp > expiresAt;
@@ -365,6 +489,23 @@ contract MERAWalletLoginRegistry is
     function _clearPendingLoginMigration(bytes32 oldLoginHash) private {
         delete pendingLoginMigrationByOldLoginHash[oldLoginHash];
         delete pendingLoginMigrationExpiresAtByOldLoginHash[oldLoginHash];
+    }
+
+    function _swapLoginOwnership(
+        bytes32 oldLoginHash,
+        string calldata oldLogin,
+        bytes32 newLoginHash,
+        string memory newLogin,
+        address previousWallet,
+        address newWallet
+    ) private {
+        walletByLoginHash[oldLoginHash] = newWallet;
+        walletByLoginHash[newLoginHash] = previousWallet;
+        loginHashByWallet[previousWallet] = newLoginHash;
+        loginHashByWallet[newWallet] = oldLoginHash;
+
+        emit LoginTransferred(oldLoginHash, oldLogin, previousWallet, newWallet);
+        emit LoginTransferred(newLoginHash, newLogin, newWallet, previousWallet);
     }
 
     /// @dev Ensures both wallets share the same guardian and emergency roles before login migration.
@@ -406,17 +547,28 @@ contract MERAWalletLoginRegistry is
 
     function _makeCommitment(
         string calldata login,
+        bytes32 walletId,
         address wallet,
         address factory,
+        bytes32 initParamsHash,
         bytes32 secret,
         uint256 deadline,
         bytes32 authorizationHash,
         bytes32 referrerLoginHash
     ) private pure returns (bytes32) {
         require(wallet != address(0) && factory != address(0), InvalidAddress());
+        require(walletId != bytes32(0), InvalidWalletId());
         return keccak256(
             abi.encode(
-                _requireLoginHash(login), wallet, factory, secret, deadline, authorizationHash, referrerLoginHash
+                _requireLoginHash(login),
+                walletId,
+                wallet,
+                factory,
+                initParamsHash,
+                secret,
+                deadline,
+                authorizationHash,
+                referrerLoginHash
             )
         );
     }

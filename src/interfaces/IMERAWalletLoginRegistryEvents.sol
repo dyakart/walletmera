@@ -11,6 +11,8 @@ interface IMERAWalletLoginRegistryEvents {
     event LoginCommitmentMade(bytes32 indexed commitment, uint256 committedAt);
     /// @notice Emitted when a login is registered for a wallet.
     event LoginRegistered(bytes32 indexed loginHash, string login, address indexed wallet, address indexed factory);
+    /// @notice Emitted once when an immutable wallet identity is registered.
+    event WalletIdentityRegistered(bytes32 indexed walletId, address indexed wallet);
     /// @notice Emitted when a referrer is recorded for a login.
     event LoginReferralRecorded(bytes32 indexed loginHash, bytes32 indexed referrerLoginHash, string referrerLogin);
     /// @notice Emitted when login ownership moves between wallets.
@@ -42,6 +44,14 @@ interface IMERAWalletLoginRegistryEvents {
         string newLogin,
         address indexed previousWallet,
         address newWallet
+    );
+    /// @notice Emitted when a satellite registry applies an authorizer-approved canonical login swap.
+    event CanonicalLoginMigrationApplied(
+        bytes32 indexed oldLoginHash,
+        bytes32 indexed newLoginHash,
+        address indexed previousWallet,
+        address newWallet,
+        uint256 nonce
     );
     /// @notice Emitted when the base paid-login price changes.
     event BaseLoginPriceUpdated(uint256 previousPrice, uint256 newPrice);

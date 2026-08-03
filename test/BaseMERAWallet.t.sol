@@ -9,6 +9,7 @@ import {MERAWalletConstants} from "../src/constants/MERAWalletConstants.sol";
 import {MERAWalletLoginRegistryConstants} from "../src/constants/MERAWalletLoginRegistryConstants.sol";
 import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
 import {MERAWalletTypes} from "../src/types/MERAWalletTypes.sol";
+import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
 import {MERAWalletUniswapV2OracleSlippageChecker} from "../src/checkers/MERAWalletUniswapV2OracleSlippageChecker.sol";
 import {MERAWalletAssetWhiteList} from "../src/checkers/whitelists/MERAWalletAssetWhiteList.sol";
 import {MERAWalletUniswapV2SlippageTypes} from "../src/checkers/types/MERAWalletUniswapV2SlippageTypes.sol";
@@ -3406,20 +3407,59 @@ contract BaseMERAWalletTest is Test {
     }
 
     function test_LoginMigrationRegistryCalls_DefaultToEmergencyOnly() public {
-        MERAWalletLoginRegistry registry = new MERAWalletLoginRegistry(address(this), false);
+        MERAWalletLoginRegistry registry =
+            new MERAWalletLoginRegistry(address(this), MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
         registry.addFactory(address(this));
 
         BaseMERAWallet newWallet = new BaseMERAWallet(primary, backup, emergency, address(0), address(0));
         bytes32 oldSecret = keccak256("old");
-        registry.commit(registry.makeCommitment("old", address(wallet), address(this), oldSecret, 0, keccak256(""), ""));
-        skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf("old")}("old", address(wallet), oldSecret, 0, "", "");
-        bytes32 newSecret = keccak256("new");
+        bytes32 oldWalletId = keccak256(bytes("old"));
+        bytes32 oldInitParamsHash = keccak256("old init");
         registry.commit(
-            registry.makeCommitment("new", address(newWallet), address(this), newSecret, 0, keccak256(""), "")
+            registry.makeCommitment(
+                "old", oldWalletId, address(wallet), address(this), oldInitParamsHash, oldSecret, 0, keccak256(""), ""
+            )
         );
         skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
-        registry.registerLogin{value: registry.priceOf("new")}("new", address(newWallet), newSecret, 0, "", "");
+        {
+            MERAWalletLoginRegistryTypes.RegistrationParams memory oldRegistration;
+            oldRegistration.login = "old";
+            oldRegistration.walletId = oldWalletId;
+            oldRegistration.wallet = address(wallet);
+            oldRegistration.initParamsHash = oldInitParamsHash;
+            oldRegistration.secret = oldSecret;
+            oldRegistration.authorization = "";
+            oldRegistration.referrerLogin = "";
+            registry.registerLogin{value: registry.priceOf("old")}(oldRegistration);
+        }
+        bytes32 newSecret = keccak256("new");
+        bytes32 newWalletId = keccak256(bytes("new"));
+        bytes32 newInitParamsHash = keccak256("new init");
+        registry.commit(
+            registry.makeCommitment(
+                "new",
+                newWalletId,
+                address(newWallet),
+                address(this),
+                newInitParamsHash,
+                newSecret,
+                0,
+                keccak256(""),
+                ""
+            )
+        );
+        skip(MERAWalletLoginRegistryConstants.MIN_COMMITMENT_AGE);
+        {
+            MERAWalletLoginRegistryTypes.RegistrationParams memory newRegistration;
+            newRegistration.login = "new";
+            newRegistration.walletId = newWalletId;
+            newRegistration.wallet = address(newWallet);
+            newRegistration.initParamsHash = newInitParamsHash;
+            newRegistration.secret = newSecret;
+            newRegistration.authorization = "";
+            newRegistration.referrerLogin = "";
+            registry.registerLogin{value: registry.priceOf("new")}(newRegistration);
+        }
 
         vm.startPrank(emergency);
         _executeEmergencyWalletSelfCallTimelockedOn(

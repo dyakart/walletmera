@@ -5,9 +5,12 @@ import {Script, console2} from "forge-std/Script.sol";
 import {BaseMERAWallet} from "../src/BaseMERAWallet.sol";
 import {MERAWalletLoginRegistry} from "../src/MERAWalletLoginRegistry.sol";
 import {MERAWalletMetaProxyCloneFactory} from "../src/MERAWalletMetaProxyCloneFactory.sol";
+import {MERAWalletLoginRegistryTypes} from "../src/types/MERAWalletLoginRegistryTypes.sol";
 
 /// @notice Deploys the `BaseMERAWallet` implementation and `MERAWalletMetaProxyCloneFactory`.
 contract DeployMERAWalletMetaProxyCloneFactory is Script {
+    bytes32 private constant STANDALONE_WALLET_NAMESPACE = keccak256("WalletMera.Account.standalone.v2");
+
     function run()
         external
         returns (
@@ -21,9 +24,11 @@ contract DeployMERAWalletMetaProxyCloneFactory is Script {
         console2.log("Deployer:", deployer);
 
         implementation = new BaseMERAWallet(address(1), address(2), address(3), address(0), address(0));
-        // Paid short-logins + pre-commit; long logins (> PAID_LOGIN_MAX_LENGTH) stay free without commit.
-        registry = new MERAWalletLoginRegistry(deployer, false);
-        factory = new MERAWalletMetaProxyCloneFactory(address(implementation), address(registry));
+        // Canonical registry: all logins use commit-reveal; short logins are paid and long logins remain free.
+        registry = new MERAWalletLoginRegistry(deployer, MERAWalletLoginRegistryTypes.RegistryMode.Canonical);
+        factory = new MERAWalletMetaProxyCloneFactory(
+            address(implementation), address(registry), STANDALONE_WALLET_NAMESPACE
+        );
         registry.addFactory(address(factory));
 
         vm.stopBroadcast();

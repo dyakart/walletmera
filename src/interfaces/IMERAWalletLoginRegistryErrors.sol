@@ -23,6 +23,8 @@ interface IMERAWalletLoginRegistryErrors {
     error LoginNotOwned();
     /// @notice Wallet already has a registered login.
     error AddressAlreadyHasLogin();
+    /// @notice Wallet identity is zero, already registered, or inconsistent with canonical creation.
+    error InvalidWalletId();
     /// @notice Referrer login is not registered.
     error ReferrerLoginNotRegistered();
     /// @notice Referrer was already set.
@@ -61,4 +63,10 @@ interface IMERAWalletLoginRegistryErrors {
     error WithdrawFailed();
     /// @notice Registration requires an authorization verifier, but none is set.
     error AuthorizationVerifierNotSet();
+    /// @notice Function is available only on the canonical registry.
+    error CanonicalRegistryOnly();
+    /// @notice Function is available only on satellite registries.
+    error SatelliteRegistryOnly();
+    /// @notice Referral data is canonical metadata and cannot be written on a satellite registry.
+    error SatelliteReferralNotAllowed();
 }

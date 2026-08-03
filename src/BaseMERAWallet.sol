@@ -9,7 +9,6 @@ import {IBaseMERAWalletEvents} from "./interfaces/IBaseMERAWalletEvents.sol";
 import {IMERAWalletLoginRegistryMigration} from "./interfaces/IMERAWalletLoginRegistryMigration.sol";
 import {IMERAWalletTransactionChecker} from "./interfaces/checkers/IMERAWalletTransactionChecker.sol";
 import {IMigrationCalls} from "./interfaces/external/IMigrationCalls.sol";
-import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -110,10 +109,8 @@ contract BaseMERAWallet is IBaseMERAWallet, IBaseMERAWalletEvents, IBaseMERAWall
     receive() external payable override {}
 
     /// @inheritdoc IBaseMERAWallet
-    function initializeFromImmutableArgs() external override {
+    function initialize(MERAWalletTypes.WalletInitParams calldata params) external override {
         require(primary == address(0), AlreadyInitialized());
-        MERAWalletTypes.WalletInitParams memory params =
-            abi.decode(Clones.fetchCloneArgs(address(this)), (MERAWalletTypes.WalletInitParams));
         _initialize(
             params.initialPrimary,
             params.initialBackup,

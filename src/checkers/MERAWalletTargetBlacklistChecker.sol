@@ -62,7 +62,7 @@ contract MERAWalletTargetBlacklistChecker is Ownable, IMERAWalletTransactionChec
     }
 
     /// @inheritdoc IMERAWalletTransactionChecker
-    function checkBefore(MERAWalletTypes.Call calldata call, bytes32, uint256 callId) external override {
+    function checkBefore(MERAWalletTypes.Call calldata call, bytes32, uint256 callId) external view override {
         address target = call.target;
         require(!blockedTarget[target], TargetBlocked(target, callId));
     }

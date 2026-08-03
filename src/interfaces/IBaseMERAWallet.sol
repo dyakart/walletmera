@@ -72,8 +72,8 @@ interface IBaseMERAWallet {
     /// @notice Target allowed for migration-mode calls.
     function migrationTarget() external view returns (address);
 
-    /// @notice Initializes a clone using immutable args embedded by the factory.
-    function initializeFromImmutableArgs() external;
+    /// @notice Initializes a newly deployed clone with its active controller state.
+    function initialize(MERAWalletTypes.WalletInitParams calldata params) external;
     /// @notice Updates the primary controller.
     function setPrimary(address newPrimary) external;
     /// @notice Updates the backup controller.

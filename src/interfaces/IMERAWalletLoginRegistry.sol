@@ -2,13 +2,14 @@
 pragma solidity 0.8.34;
 
 import {IMERAWalletLoginRegistryMigration} from "./IMERAWalletLoginRegistryMigration.sol";
+import {MERAWalletLoginRegistryTypes} from "../types/MERAWalletLoginRegistryTypes.sol";
 
 /// @notice External API of MERAWalletLoginRegistry (numeric bounds live in {MERAWalletLoginRegistryConstants}).
 interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
-    /// @notice Optional authorization verifier used for short-login registrations.
+    /// @notice Authorization verifier used by satellite registrations and migration replays.
     function authorizationVerifier() external view returns (address);
-    /// @notice Whether short paid logins require verifier authorization.
-    function REQUIRE_SHORT_LOGIN_AUTHORIZATION() external view returns (bool);
+    /// @notice Operating mode selected permanently at registry deployment.
+    function REGISTRY_MODE() external view returns (MERAWalletLoginRegistryTypes.RegistryMode);
     /// @notice Returns whether `factory` may register logins.
     function isFactory(address factory) external view returns (bool allowed);
     /// @dev Zero means absent; otherwise value is `committedAt + 1` for the matching commitment.
@@ -17,6 +18,10 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
     function walletByLoginHash(bytes32 loginHash) external view returns (address wallet);
     /// @notice Login hash registered for `wallet`.
     function loginHashByWallet(address wallet) external view returns (bytes32 loginHash);
+    /// @notice Wallet registered for an immutable wallet identity.
+    function walletByWalletId(bytes32 walletId) external view returns (address wallet);
+    /// @notice Immutable identity assigned to a wallet.
+    function walletIdByWallet(address wallet) external view returns (bytes32 walletId);
     /// @notice Referrer login hash recorded for a login hash.
     function referrerLoginHashByLoginHash(bytes32 loginHash) external view returns (bytes32 referrerLoginHash);
     /// @dev Matches the compiler-generated getter for the public mapping (struct fields as a tuple).
@@ -29,6 +34,8 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
         external
         view
         returns (uint256 expiresAt);
+    /// @notice Next registry-wide replay nonce for a canonical migration.
+    function satelliteMigrationNonce() external view returns (uint256 nonce);
     /// @notice Base paid-login price.
     function baseLoginPrice() external view returns (uint256);
     /// @notice Multiplier applied to shorter paid logins.
@@ -47,18 +54,19 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
     /// @notice Stores a login registration commitment.
     function commit(bytes32 commitment) external;
 
-    /// @notice Registers `login` for `wallet` after validating commitment, payment, and optional authorization.
-    function registerLogin(
-        string calldata login,
-        address wallet,
-        bytes32 secret,
-        uint256 deadline,
-        bytes calldata authorization,
-        string calldata referrerLogin
-    ) external payable;
+    /// @notice Registers a wallet after canonical commitment/payment or satellite authorization validation.
+    function registerLogin(MERAWalletLoginRegistryTypes.RegistrationParams calldata registration) external payable;
 
     /// @notice Sets the caller wallet's referrer login once.
     function setReferrer(string calldata referrerLogin) external;
+
+    /// @notice Applies an authorizer-approved canonical login swap to a satellite registry.
+    function applyAuthorizedLoginMigration(
+        string calldata oldLogin,
+        string calldata newLogin,
+        uint256 deadline,
+        bytes calldata authorization
+    ) external;
 
     /// @notice Returns the registration price for `login`.
     function priceOf(string calldata login) external view returns (uint256);
@@ -68,6 +76,8 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
     function loginOf(address wallet) external view returns (string memory);
     /// @notice Returns the login string registered to `loginHash`.
     function loginByHash(bytes32 loginHash) external view returns (string memory);
+    /// @notice Returns the immutable wallet identity currently associated with `login`.
+    function walletIdOf(string calldata login) external view returns (bytes32 walletId);
     /// @notice Returns the referrer login hash for `login`.
     function referrerLoginHashOf(string calldata login) external view returns (bytes32);
     /// @notice Returns the referrer login string for `login`.
@@ -78,8 +88,10 @@ interface IMERAWalletLoginRegistry is IMERAWalletLoginRegistryMigration {
     /// @notice Computes the commitment required for a future registration.
     function makeCommitment(
         string calldata login,
+        bytes32 walletId,
         address wallet,
         address factory,
+        bytes32 initParamsHash,
         bytes32 secret,
         uint256 deadline,
         bytes32 authorizationHash,
