@@ -116,11 +116,19 @@ contract MERACrossChainDeployerTest is Test {
         assertNotEq(testnet.wallet, mainnet.wallet);
     }
 
-    function testChangedComponentsUseNewSaltsWithoutRotatingCompatibleComponents() public {
+    function testChangedDeploymentArtifactsUseNewSaltsWithoutRotatingCompatibleImplementation() public {
         bytes32 legacyRegistrySalt = keccak256("WalletMera.LoginRegistry.v2");
+        bytes32 legacyVerifierSalt = keccak256("WalletMera.LoginSignatureVerifier.v2");
         bytes32 legacyFactorySalt = keccak256("WalletMera.MetaProxyCloneFactory.v2");
         bytes memory legacyInitCode =
             abi.encodePacked(type(CrossChainDeploymentTarget).creationCode, abi.encode(uint256(2)));
+        bytes memory upgradedVerifierInitCode =
+            abi.encodePacked(type(MERALoginSignatureVerifier).creationCode, abi.encode(authorizer));
+        bytes memory legacyVerifierInitCode = abi.encodePacked(
+            _withDifferentMetadata(type(MERALoginSignatureVerifier).creationCode), abi.encode(authorizer)
+        );
+        bytes32 legacyVerifierInitCodeHash = keccak256(legacyVerifierInitCode);
+        bytes32 upgradedVerifierInitCodeHash = keccak256(upgradedVerifierInitCode);
 
         address implementation = deployer.deploy(
             MERACrossChainDeploymentConstants.WALLET_IMPLEMENTATION_SALT,
@@ -129,10 +137,9 @@ contract MERACrossChainDeployerTest is Test {
                 abi.encode(address(1), address(2), address(3), address(0), address(0))
             )
         );
-        address verifier = deployer.deploy(
-            MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT,
-            abi.encodePacked(type(MERALoginSignatureVerifier).creationCode, abi.encode(authorizer))
-        );
+        address legacyVerifier = deployer.deploy(legacyVerifierSalt, legacyVerifierInitCode);
+        address upgradedVerifier =
+            deployer.deploy(MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT, upgradedVerifierInitCode);
         address legacyRegistry = deployer.deploy(legacyRegistrySalt, legacyInitCode);
         address legacyFactory = deployer.deploy(legacyFactorySalt, legacyInitCode);
         address upgradedRegistry = deployer.deploy(
@@ -151,9 +158,18 @@ contract MERACrossChainDeployerTest is Test {
         );
 
         assertNotEq(upgradedRegistry, legacyRegistry);
+        assertNotEq(upgradedVerifier, legacyVerifier);
         assertNotEq(upgradedFactory, legacyFactory);
+        assertNotEq(legacyVerifierInitCodeHash, upgradedVerifierInitCodeHash);
+        assertEq(MERALoginSignatureVerifier(legacyVerifier).AUTHORIZER(), authorizer);
+        assertEq(MERALoginSignatureVerifier(upgradedVerifier).AUTHORIZER(), authorizer);
+        assertEq(deployer.initCodeHashBySalt(legacyVerifierSalt), legacyVerifierInitCodeHash);
+        assertEq(
+            deployer.initCodeHashBySalt(MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT),
+            upgradedVerifierInitCodeHash
+        );
         assertEq(deployer.predict(MERACrossChainDeploymentConstants.WALLET_IMPLEMENTATION_SALT), implementation);
-        assertEq(deployer.predict(MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT), verifier);
+        assertEq(deployer.predict(MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT), upgradedVerifier);
         assertEq(MERACrossChainDeploymentConstants.LOGIN_REGISTRY_SALT, keccak256("WalletMera.LoginRegistry.v3"));
         assertEq(
             MERACrossChainDeploymentConstants.WALLET_FACTORY_SALT, keccak256("WalletMera.MetaProxyCloneFactory.v3")
@@ -162,7 +178,7 @@ contract MERACrossChainDeployerTest is Test {
             MERACrossChainDeploymentConstants.WALLET_IMPLEMENTATION_SALT, keccak256("WalletMera.BaseMERAWallet.v2")
         );
         assertEq(
-            MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT, keccak256("WalletMera.LoginSignatureVerifier.v2")
+            MERACrossChainDeploymentConstants.LOGIN_VERIFIER_SALT, keccak256("WalletMera.LoginSignatureVerifier.v3")
         );
         assertEq(MERACrossChainDeploymentConstants.MAINNET_WALLET_NAMESPACE, keccak256("WalletMera.Account.mainnet.v2"));
         assertEq(MERACrossChainDeploymentConstants.TESTNET_WALLET_NAMESPACE, keccak256("WalletMera.Account.testnet.v2"));
@@ -204,6 +220,16 @@ contract MERACrossChainDeployerTest is Test {
         script.registryModeForChain(999);
         vm.expectRevert(abi.encodeWithSelector(DeployMERAWalletStack.UnsupportedChain.selector, uint256(999)));
         script.walletNamespaceForChain(999);
+    }
+
+    function _withDifferentMetadata(bytes memory creationCode) private pure returns (bytes memory) {
+        uint256 codeLength = creationCode.length;
+        uint256 metadataLength =
+            (uint256(uint8(creationCode[codeLength - 2])) << 8) | uint256(uint8(creationCode[codeLength - 1]));
+        require(metadataLength > 10 && metadataLength + 2 <= codeLength);
+        uint256 metadataByte = codeLength - metadataLength - 2 + 10;
+        creationCode[metadataByte] = bytes1(uint8(creationCode[metadataByte]) ^ 1);
+        return creationCode;
     }
 
     function _deployStack(MERAWalletLoginRegistryTypes.RegistryMode mode, bytes32 walletNamespace)
